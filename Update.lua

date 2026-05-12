@@ -13,10 +13,10 @@ import "com.androlua.LuaDialog"
 import "android.os.*"
 import "java.io.*"
 
--- CSR MultiTyper v4.3 | All-in-One AI Voice Typing
+-- CSR MultiTyper v4.4 | All-in-One AI Voice Typing
 -- Developer: Aftab Ali (CSR Expert)
 
-local currentVersion = "4.3"
+local currentVersion = "4.4"
 local PREFS_NAME     = "CSRMultiTyper_V4"
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
@@ -1011,11 +1011,13 @@ local function showAboutDialog(onBack)
                  "\nEmoji          : " .. (getBool("emojiEnabled") and "ON - " .. emojiStyleName or "OFF") ..
                  "\nTranslate   : " .. getStr("targetLang","---");
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        {TextView; text="What's New in v4.3"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView; text="What's New in v4.4"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text=
-                "v4.3 (Current Update):\n" ..
-                "* Huge Language Pack Update!\n" ..
+                "v4.4 (Current Update):\n" ..
+                "* Version bump and minor optimizations for seamless\n" ..
+                "  Auto-Update background process.\n\n" ..
+                "v4.3 Highlights:\n" ..
                 "* Expanded Voice Typing to 50 Languages.\n" ..
                 "* Expanded Translation Mode to 50 Languages.\n\n" ..
                 "v4.0 & v4.2 Highlights:\n" ..
