@@ -1,0 +1,1225 @@
+require "import"
+import "android.widget.*"
+import "android.content.Intent"
+import "android.speech.SpeechRecognizer"
+import "android.speech.RecognitionListener"
+import "android.speech.RecognizerIntent"
+import "android.view.View"
+import "android.content.Context"
+import "android.net.Uri"
+import "com.androlua.Http"
+import "cjson"
+
+-- CSR MultiTyper v4.0 | All-in-One AI Voice Typing
+-- Developer: Aftab Ali (CSR Expert)
+
+local currentVersion = "4.0"
+local PREFS_NAME     = "CSRMultiTyper_V4"
+local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+local prefsEd        = prefs.edit()
+local context        = service.getApplicationContext()
+
+local function getStr(k,d)   return prefs.getString(k, d or "")        end
+local function getBool(k,d)  return prefs.getBoolean(k, d or false)     end
+local function saveStr(k,v)  prefsEd.putString(k,v);   prefsEd.apply() end
+local function saveBool(k,v) prefsEd.putBoolean(k,v);  prefsEd.apply() end
+
+-- ==================== PROVIDERS ====================
+local PROVIDERS = {"Groq AI","Google Gemini","OpenAI","OpenRouter"}
+
+local ALL_MODELS = {
+    ["Groq AI"]       = {"llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768","gemma2-9b-it"},
+    ["Google Gemini"] = {"gemini-2.0-flash","gemini-1.5-flash","gemini-1.5-pro","gemini-2.0-flash-lite"},
+    ["OpenAI"]        = {"gpt-4o","gpt-4o-mini","gpt-3.5-turbo","gpt-4-turbo"},
+    ["OpenRouter"]    = {"google/gemini-2.0-flash-001","meta-llama/llama-3.3-70b-instruct","microsoft/phi-3-mini-128k","anthropic/claude-3-haiku","mistralai/mistral-7b-instruct"},
+}
+
+local PROV_CFG = {
+    ["Groq AI"]       = {kp="groq_key", mp="groq_model", dm="llama-3.3-70b-versatile",    hint="Enter Groq API Key",       info="console.groq.com/keys"},
+    ["Google Gemini"] = {kp="gem_key",  mp="gem_model",  dm="gemini-2.0-flash",            hint="Enter Gemini API Key",     info="aistudio.google.com/app/apikey"},
+    ["OpenAI"]        = {kp="oai_key",  mp="oai_model",  dm="gpt-4o-mini",                 hint="Enter OpenAI API Key",     info="platform.openai.com/api-keys"},
+    ["OpenRouter"]    = {kp="or_key",   mp="or_model",   dm="google/gemini-2.0-flash-001", hint="Enter OpenRouter API Key", info="openrouter.ai/keys"},
+}
+
+-- ==================== LANGUAGES ====================
+local langNames = {
+    "Urdu (Pakistan)","English (US)","English (UK)","Hindi (India)",
+    "Arabic (Saudi Arabia)","Persian (Iran)","Pashto (Pakistan)","Sindhi (Pakistan)",
+    "Spanish (Spain)","French (France)","German (Germany)","Chinese (Mandarin)",
+    "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)"
+}
+local langCodes = {
+    "ur-PK","en-US","en-GB","hi-IN","ar-SA","fa-IR","ps-PK","sd-PK",
+    "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU"
+}
+local transLangs = {
+    "English","Urdu","Hindi","Arabic","Spanish","French",
+    "German","Turkish","Russian","Chinese","Punjabi","Bengali"
+}
+
+-- ==================== MODES ====================
+local MODES     = {"Auto Fix","Conversion","Intelligent Writer","Professional","Translation"}
+local MODE_KEYS = {"auto_fix","conversion","intelligent","professional","translation"}
+local MODE_DESC = {
+    "Fix spelling mistakes and add punctuation",
+    "Mixed Script: keep Urdu but write names/terms in English",
+    "Enhance text quality, grammar and natural flow",
+    "Rewrite in formal professional business style",
+    "Translate voice input to selected target language"
+}
+
+-- ==================== SMART EMOJI ENGINE ====================
+-- All emoji below are SAFE: single codepoint, no variation selector (no U+FE0F)
+-- One entry per line to avoid any parser issues
+
+local EMOJI_MAP = {
+    -- Islamic / Religious
+    {"اللہ",       "🤲"},
+    {"Allah",      "🤲"},
+    {"الله",       "🤲"},
+    {"دعا",        "🙏"},
+    {"prayer",     "🙏"},
+    {"نماز",       "🕌"},
+    {"الحمد",      "😊"},
+    {"ماشاء",      "✨"},
+    {"سبحان",      "✨"},
+    {"انشاء",      "🤲"},
+    {"رمضان",      "🌙"},
+    {"عید",        "🎉"},
+    {"قرآن",       "📖"},
+    {"quran",      "📖"},
+    {"حدیث",       "📖"},
+    -- Greetings
+    {"شکریہ",      "🙏"},
+    {"thank",      "🙏"},
+    {"please",     "🙏"},
+    {"السلام",     "👋"},
+    {"hello",      "👋"},
+    {"hi ",        "👋"},
+    {"bye",        "👋"},
+    -- Happy / Positive
+    {"خوش",        "😊"},
+    {"happy",      "😊"},
+    {"خوشی",       "😊"},
+    {"اچھا",       "😊"},
+    {"اچھی",       "😊"},
+    {"بہترین",     "🌟"},
+    {"great",      "🌟"},
+    {"best",       "🌟"},
+    {"زبردست",     "💪"},
+    {"amazing",    "🔥"},
+    {"شاندار",     "🌟"},
+    {"مبارک",      "🎉"},
+    {"congratul",  "🎉"},
+    {"مبارکباد",   "🎊"},
+    {"کامیاب",     "🏆"},
+    {"success",    "🏆"},
+    {"جیت",        "🏆"},
+    {"win",        "🏆"},
+    {"خوبصورت",    "😍"},
+    {"beautiful",  "😍"},
+    {"پسند",       "👍"},
+    {"like",       "👍"},
+    {"love",       "❤"},
+    {"محبت",       "❤"},
+    -- Sad / Negative
+    {"افسوس",      "😔"},
+    {"sad",        "😔"},
+    {"دکھ",        "😢"},
+    {"مشکل",       "😟"},
+    {"problem",    "😟"},
+    {"پریشان",     "😟"},
+    {"worried",    "😟"},
+    {"برا",        "😞"},
+    {"bad",        "😞"},
+    {"غصہ",        "😠"},
+    {"angry",      "😠"},
+    {"رونا",       "😢"},
+    {"cry",        "😢"},
+    -- Food / Eat
+    {"کھانا",      "🍴"},
+    {"food",       "🍴"},
+    {"کھایا",      "😋"},
+    {"مزیدار",     "😋"},
+    {"delicious",  "😋"},
+    {"پینا",       "🥤"},
+    {"چائے",       "☕"},
+    {"tea",        "☕"},
+    {"coffee",     "☕"},
+    {"پھل",        "🍎"},
+    {"fruit",      "🍎"},
+    {"دودھ",       "🥛"},
+    -- Travel / Movement
+    {"سفر",        "✈"},
+    {"travel",     "✈"},
+    {"گاڑی",       "🚗"},
+    {"جانا",       "🚗"},
+    {"آیا",        "🏠"},
+    {"گیا",        "👋"},
+    {"car",        "🚗"},
+    {"driving",    "🚗"},
+    {"ٹرین",       "🚂"},
+    {"train",      "🚂"},
+    {"بس",         "🚌"},
+    -- Work / Complete
+    {"کام",        "💼"},
+    {"work",       "💼"},
+    {"کاروبار",    "💼"},
+    {"مکمل",       "✅"},
+    {"ختم",        "✅"},
+    {"done",       "✅"},
+    {"finish",     "✅"},
+    {"complete",   "✅"},
+    {"تیار",       "✅"},
+    {"ready",      "✅"},
+    -- Study / Education
+    {"پڑھ",        "📚"},
+    {"study",      "📚"},
+    {"school",     "🏫"},
+    {"سیکھ",       "🎓"},
+    {"learn",      "🎓"},
+    {"college",    "🎓"},
+    {"university", "🎓"},
+    {"کلاس",       "📚"},
+    {"استاد",      "📝"},
+    -- Weather
+    {"موسم",       "⛅"},
+    {"weather",    "⛅"},
+    {"بارش",       "🌧"},
+    {"دھوپ",       "☀"},
+    {"sunny",      "☀"},
+    {"گرم",        "🌡"},
+    {"سردی",       "❄"},
+    {"cold",       "❄"},
+    {"ہوا",        "💨"},
+    {"wind",       "💨"},
+    {"طوفان",      "🌩"},
+    {"storm",      "🌩"},
+    -- Health / Medical
+    {"بیمار",      "🏥"},
+    {"sick",       "🤒"},
+    {"دوائی",      "💊"},
+    {"ڈاکٹر",      "🏥"},
+    {"doctor",     "🏥"},
+    {"hospital",   "🏥"},
+    {"صحت",        "💪"},
+    {"health",     "💪"},
+    {"ٹھیک",       "😊"},
+    -- Love / Family
+    {"پیار",       "💕"},
+    {"family",     "👪"},
+    {"ماں",        "👩"},
+    {"باپ",        "👨"},
+    {"بھائی",      "🤝"},
+    {"بہن",        "💕"},
+    {"بچہ",        "👶"},
+    {"child",      "👶"},
+    -- Money / Finance
+    {"پیسہ",       "💰"},
+    {"money",      "💰"},
+    {"روپے",       "💵"},
+    {"خرید",       "🛒"},
+    {"buy",        "🛒"},
+    {"sell",       "💸"},
+    {"تنخواہ",     "💰"},
+    {"salary",     "💰"},
+    -- Tech / Digital
+    {"موبائل",     "📱"},
+    {"mobile",     "📱"},
+    {"phone",      "📱"},
+    {"computer",   "💻"},
+    {"laptop",     "💻"},
+    {"انٹرنیٹ",    "🌐"},
+    {"internet",   "🌐"},
+    {"ایپ",        "📱"},
+    {"app",        "📱"},
+    {"یوٹیوب",     "🎬"},
+    {"youtube",    "🎬"},
+    {"video",      "🎬"},
+    -- Time of Day
+    {"صبح",        "🌅"},
+    {"morning",    "🌅"},
+    {"شام",        "🌆"},
+    {"رات",        "🌙"},
+    {"night",      "🌙"},
+    {"دوپہر",      "☀"},
+    {"آج",         "📅"},
+    {"today",      "📅"},
+    {"کل",         "📅"},
+    {"tomorrow",   "📅"},
+    -- Sport / Fun
+    {"کھیل",       "⚽"},
+    {"sport",      "⚽"},
+    {"کرکٹ",       "🏏"},
+    {"cricket",    "🏏"},
+    {"football",   "⚽"},
+    {"مزہ",        "😄"},
+    {"fun",        "😄"},
+    {"خوشگوار",    "😄"},
+    -- Sleep / Rest
+    {"سونا",       "😴"},
+    {"sleep",      "😴"},
+    {"آرام",       "😴"},
+    {"rest",       "😴"},
+    {"تھکان",      "😓"},
+    {"tired",      "😓"},
+}
+
+-- Default emoji pool (safe single-codepoint emoji only, no variation selectors)
+local EMOJI_DEFAULT = {
+    "😊","✅","🌟","💪","🎯","😄","🙏","✨","🎉","❤",
+    "🔥","💡","👍","🌸","👌","💫","🎊","😎","🤝","⭐",
+    "🌈","🎶","🏅","🎁","🌺","💎","🌻","🎵","🏆","😃"
+}
+
+-- Pick best emoji based on sentence content
+local function pickEmoji(sentence, idx)
+    local i = 1
+    while i <= #EMOJI_MAP do
+        local pair    = EMOJI_MAP[i]
+        local keyword = pair[1]
+        local emoji   = pair[2]
+        if sentence:find(keyword, 1, true) then
+            return emoji
+        end
+        if sentence:lower():find(keyword:lower(), 1, true) then
+            return emoji
+        end
+        i = i + 1
+    end
+    return EMOJI_DEFAULT[((idx - 1) % #EMOJI_DEFAULT) + 1]
+end
+
+-- Split text into sentences (handles English . ! ? AND Urdu stop byte D8 94)
+local function splitIntoSentences(text)
+    if not text or text == "" then return {} end
+    local sentences = {}
+    local cur = ""
+    local i   = 1
+    local len = #text
+
+    while i <= len do
+        local b = text:byte(i)
+
+        if b == 0xD8 and i < len and text:byte(i+1) == 0x94 then
+            -- Urdu full stop
+            cur = cur .. "\xD8\x94"
+            local t = cur:match("^%s*(.-)%s*$")
+            if t and t ~= "" then
+                sentences[#sentences + 1] = t
+            end
+            cur = ""
+            i = i + 2
+
+        elseif b == 0x2E or b == 0x21 or b == 0x3F then
+            -- English . ! ?
+            local nb = (i < len) and text:byte(i + 1) or 0
+            if b == 0x2E and nb == 0x2E then
+                -- Part of ... (ellipsis) - keep going
+                cur = cur .. "."
+                i = i + 1
+            else
+                cur = cur .. string.char(b)
+                local t = cur:match("^%s*(.-)%s*$")
+                if t and t ~= "" then
+                    sentences[#sentences + 1] = t
+                end
+                cur = ""
+                i = i + 1
+            end
+
+        elseif b >= 0xF0 then
+            cur = cur .. text:sub(i, i + 3)
+            i = i + 4
+        elseif b >= 0xE0 then
+            cur = cur .. text:sub(i, i + 2)
+            i = i + 3
+        elseif b >= 0xC0 then
+            cur = cur .. text:sub(i, i + 1)
+            i = i + 2
+        else
+            cur = cur .. string.char(b)
+            i = i + 1
+        end
+    end
+
+    -- Remaining text without ending punctuation
+    local t = cur:match("^%s*(.-)%s*$")
+    if t and t ~= "" then
+        sentences[#sentences + 1] = t
+    end
+
+    return sentences
+end
+
+-- Add smart emoji after each sentence (Lua-side, works with ALL providers)
+local function addSmartEmoji(text)
+    if not text or text == "" then return text end
+    local sentences = splitIntoSentences(text)
+    if #sentences == 0 then return text end
+    local parts = {}
+    local i = 1
+    while i <= #sentences do
+        local emoji = pickEmoji(sentences[i], i)
+        parts[#parts + 1] = sentences[i] .. " " .. emoji
+        i = i + 1
+    end
+    return table.concat(parts, "  ")
+end
+
+-- ==================== DICTIONARY ====================
+local dictFile    = os.getenv("EXTERNAL_STORAGE") .. "/csrmultityper_v4_dict.dat"
+local changeTable = {}
+
+local function loadDictionary()
+    local f = io.open(dictFile, "r")
+    if f then
+        local c = f:read("*all")
+        f:close()
+        if c and c ~= "" then
+            local ok, r = pcall(cjson.decode, c)
+            if ok and type(r) == "table" then
+                changeTable = r
+            end
+        end
+    end
+end
+
+local function saveDictionary()
+    local f = io.open(dictFile, "w")
+    if f then
+        f:write(cjson.encode(changeTable))
+        f:close()
+    end
+end
+
+local function applyDictionary(text)
+    for w, c in pairs(changeTable) do
+        local pat = "(%f[%a])" .. w:gsub("(%W)", "%%%1") .. "(%f[%W])"
+        text = text:gsub(pat, function(a, b) return a .. c .. b end)
+        if text:lower() == w:lower() then text = c end
+    end
+    return text
+end
+
+-- ==================== PROMPT ENGINE ====================
+-- No emoji instructions in prompts. Lua handles emoji after AI returns.
+
+local function getModePrompt(text, mode, targetLang)
+    if mode == "auto_fix" then
+        return "You are a text correction assistant.\n" ..
+               "1. Fix ALL spelling mistakes in Urdu and English.\n" ..
+               "2. Add missing punctuation (full stop, comma, question mark).\n" ..
+               "3. Keep the EXACT original meaning and language.\n" ..
+               "4. Do NOT translate. Do NOT rephrase.\n" ..
+               "Return ONLY the corrected text.\n\n" ..
+               "Text: " .. text
+
+    elseif mode == "conversion" then
+        return "You are a Mixed Script text converter.\n\n" ..
+               "RULES:\n" ..
+               "1. Keep ALL sentence structure in original Urdu/Hindi.\n" ..
+               "2. Find: people names, city names, country names, brand names, tech terms, English loanwords.\n" ..
+               "3. Convert ONLY those words to English (Latin) letters.\n" ..
+               "4. All other Urdu/Hindi words MUST stay in Arabic script.\n" ..
+               "5. Do NOT translate the sentence.\n\n" ..
+               "EXAMPLES:\n" ..
+               "Input: miara nam aftab ali hai main pakistan main rahta hun\n" ..
+               "Output: miara nam Aftab Ali hai main Pakistan main rahta hun\n\n" ..
+               "Input: mujhay mobile charge karna hai\n" ..
+               "Output: mujhay Mobile Charge karna hai\n\n" ..
+               "Now convert:\n" .. text
+
+    elseif mode == "intelligent" then
+        return "You are an AI Writing Enhancement Assistant.\n" ..
+               "1. Make text more articulate, natural, and engaging.\n" ..
+               "2. Fix ALL grammatical errors.\n" ..
+               "3. Improve vocabulary while keeping the original meaning.\n" ..
+               "4. Keep the original language (Urdu/Hindi/English).\n" ..
+               "Return ONLY the enhanced text.\n\n" ..
+               "Text: " .. text
+
+    elseif mode == "professional" then
+        return "You are a Professional Writing Expert.\n" ..
+               "1. Rewrite in formal, polished, professional language.\n" ..
+               "2. Suitable for business or official communication.\n" ..
+               "3. Correct grammar, sophisticated vocabulary, respectful tone.\n" ..
+               "4. Keep the original language and core meaning.\n" ..
+               "Return ONLY the rewritten text.\n\n" ..
+               "Text: " .. text
+
+    elseif mode == "translation" then
+        local lang = targetLang or "English"
+        return "You are a professional translator.\n" ..
+               "1. Fix any spelling mistakes in the input.\n" ..
+               "2. Translate accurately to " .. lang .. " language.\n" ..
+               "3. Ensure natural sound and preserve original meaning.\n" ..
+               "Return ONLY the translated text in " .. lang .. ".\n\n" ..
+               "Text: " .. text
+    end
+
+    return text
+end
+
+-- ==================== API CALLERS ====================
+
+local function callGroq(prompt, callback)
+    local key   = getStr("groq_key")
+    local model = getStr("groq_model", "llama-3.3-70b-versatile")
+    local url   = "https://api.groq.com/openai/v1/chat/completions"
+    local hdr   = {["Content-Type"] = "application/json", ["Authorization"] = "Bearer " .. key}
+    local body  = cjson.encode({
+        model    = model,
+        messages = {
+            {role = "system", content = "You are a multilingual text assistant. Follow all instructions. Return only the processed output text."},
+            {role = "user",   content = prompt}
+        },
+        max_tokens  = 1024,
+        temperature = 0.1
+    })
+    Http.post(url, body, hdr, function(status, data)
+        if status == 200 then
+            local ok, d = pcall(cjson.decode, data)
+            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
+                callback(d.choices[1].message.content, nil)
+            else
+                callback(nil, "Groq: Could not parse response")
+            end
+        elseif status == 401 then
+            callback(nil, "Groq: Invalid API key")
+        elseif status == 429 then
+            callback(nil, "Groq: Rate limit. Please wait.")
+        elseif status == 400 then
+            callback(nil, "Groq: Bad request. Try different model.")
+        else
+            callback(nil, "Groq error: " .. tostring(status))
+        end
+    end)
+end
+
+local function callGemini(prompt, callback)
+    local key   = getStr("gem_key")
+    local model = getStr("gem_model", "gemini-2.0-flash")
+    local url   = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. key
+    local hdr   = {["Content-Type"] = "application/json"}
+    local body  = cjson.encode({
+        contents         = {{parts = {{text = prompt}}}},
+        generationConfig = {temperature = 0.1, maxOutputTokens = 1024}
+    })
+    Http.post(url, body, hdr, function(status, data)
+        if status == 200 then
+            local ok, d = pcall(cjson.decode, data)
+            if ok and d and d.candidates and d.candidates[1] then
+                local cand = d.candidates[1]
+                if cand.content and cand.content.parts and cand.content.parts[1] then
+                    callback(cand.content.parts[1].text, nil)
+                else
+                    callback(nil, "Gemini: Empty response")
+                end
+            else
+                callback(nil, "Gemini: Could not parse response")
+            end
+        elseif status == 400 then
+            callback(nil, "Gemini: Bad request or model unavailable")
+        elseif status == 403 then
+            callback(nil, "Gemini: Invalid API key")
+        elseif status == 429 then
+            callback(nil, "Gemini: Rate limit. Please wait.")
+        else
+            callback(nil, "Gemini error: " .. tostring(status))
+        end
+    end)
+end
+
+local function callOpenAI(prompt, callback)
+    local key   = getStr("oai_key")
+    local model = getStr("oai_model", "gpt-4o-mini")
+    local url   = "https://api.openai.com/v1/chat/completions"
+    local hdr   = {["Content-Type"] = "application/json", ["Authorization"] = "Bearer " .. key}
+    local body  = cjson.encode({
+        model    = model,
+        messages = {
+            {role = "system", content = "You are a multilingual text assistant. Return only the processed output text."},
+            {role = "user",   content = prompt}
+        },
+        max_tokens  = 1024,
+        temperature = 0.1
+    })
+    Http.post(url, body, hdr, function(status, data)
+        if status == 200 then
+            local ok, d = pcall(cjson.decode, data)
+            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
+                callback(d.choices[1].message.content, nil)
+            else
+                callback(nil, "OpenAI: Could not parse response")
+            end
+        elseif status == 401 then
+            callback(nil, "OpenAI: Invalid API key")
+        elseif status == 429 then
+            callback(nil, "OpenAI: Quota exceeded or rate limit")
+        elseif status == 404 then
+            callback(nil, "OpenAI: Model not found")
+        else
+            callback(nil, "OpenAI error: " .. tostring(status))
+        end
+    end)
+end
+
+local function callOpenRouter(prompt, callback)
+    local key   = getStr("or_key")
+    local model = getStr("or_model", "google/gemini-2.0-flash-001")
+    local url   = "https://openrouter.ai/api/v1/chat/completions"
+    local hdr   = {
+        ["Content-Type"]  = "application/json",
+        ["Authorization"] = "Bearer " .. key,
+        ["HTTP-Referer"]  = "https://github.com/CSRExpert",
+        ["X-Title"]       = "CSR MultiTyper"
+    }
+    local body = cjson.encode({
+        model    = model,
+        messages = {
+            {role = "system", content = "You are a multilingual text assistant. Return only the processed output text."},
+            {role = "user",   content = prompt}
+        },
+        max_tokens  = 1024,
+        temperature = 0.1
+    })
+    Http.post(url, body, hdr, function(status, data)
+        if status == 200 then
+            local ok, d = pcall(cjson.decode, data)
+            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
+                callback(d.choices[1].message.content, nil)
+            else
+                callback(nil, "OpenRouter: Could not parse response")
+            end
+        elseif status == 401 then
+            callback(nil, "OpenRouter: Invalid API key")
+        elseif status == 402 then
+            callback(nil, "OpenRouter: Insufficient credits")
+        elseif status == 429 then
+            callback(nil, "OpenRouter: Rate limit. Please wait.")
+        else
+            callback(nil, "OpenRouter error: " .. tostring(status))
+        end
+    end)
+end
+
+-- ==================== UNIFIED AI PROCESSOR ====================
+local function processWithAI(rawText, callback)
+    local prov       = getStr("active_provider", "Groq AI")
+    local mode       = getStr("active_mode",     "auto_fix")
+    local withEmoji  = getBool("emojiEnabled")
+    local targetLang = getStr("targetLang",      "English")
+    local cfg        = PROV_CFG[prov]
+
+    if not cfg or getStr(cfg.kp) == "" then
+        service.speak("No API key. Open AI Engine Settings and add your " .. prov .. " key.")
+        callback(rawText)
+        return
+    end
+
+    service.asyncSpeak("AI processing...")
+    local prompt = getModePrompt(rawText, mode, targetLang)
+
+    local function done(result, err)
+        if err then
+            service.speak(err)
+            callback(rawText)
+            return
+        end
+        local finalText = result or rawText
+        -- Smart emoji added by Lua (not AI) — works with ALL providers
+        if withEmoji and mode ~= "translation" then
+            finalText = addSmartEmoji(finalText)
+        end
+        callback(finalText)
+    end
+
+    if     prov == "Groq AI"       then callGroq(prompt, done)
+    elseif prov == "Google Gemini" then callGemini(prompt, done)
+    elseif prov == "OpenAI"        then callOpenAI(prompt, done)
+    elseif prov == "OpenRouter"    then callOpenRouter(prompt, done)
+    else callback(rawText)
+    end
+end
+
+-- ==================== API KEY CHECK ====================
+local function hasActiveApiKey()
+    local prov = getStr("active_provider", "Groq AI")
+    local cfg  = PROV_CFG[prov]
+    if not cfg then return false end
+    return getStr(cfg.kp) ~= ""
+end
+
+-- ==================== VOICE RECOGNITION ====================
+local function startVoiceRecognition()
+    if not hasActiveApiKey() then
+        service.speak("API key required. Open AI Engine Settings and add your " .. getStr("active_provider","Groq AI") .. " key.")
+        return
+    end
+    local et = service.getEditText()
+    if not et then
+        service.speak("Please tap on a text field first.")
+        return
+    end
+    local langCode = getStr("selectedLangCode", "ur-PK")
+    local sr = SpeechRecognizer.createSpeechRecognizer(context)
+    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, langCode)
+    service.asyncSpeak("Listening...")
+    sr.setRecognitionListener(RecognitionListener{
+        onResults = function(results)
+            local arr = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            if arr and arr.size() > 0 then
+                local raw = arr.get(0)
+                raw = applyDictionary(raw)
+                raw = raw:gsub("%s+([%.,%!%?;:])", "%1")
+                if not raw:match("[%.!%?]%s*$") then raw = raw .. ". " end
+                processWithAI(raw, function(final)
+                    service.insertText(et, final)
+                    service.speak(final)
+                end)
+            else
+                service.asyncSpeak("No speech detected. Try again.")
+            end
+            sr.destroy()
+        end,
+        onError = function(errCode)
+            service.asyncSpeak("Could not understand. Please try again.")
+            sr.destroy()
+        end
+    })
+    sr.startListening(intent)
+end
+
+-- ==================== LANGUAGE DIALOG ====================
+local function showLanguageDialog(parentDlg)
+    local dlg = LuaDialog(service)
+    dlg.setTitle("Select Voice Language")
+    local lv = ListView(context)
+    lv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, langNames))
+    lv.onItemClick = function(p, v, pos, id)
+        saveStr("selectedLang",     langNames[pos + 1])
+        saveStr("selectedLangCode", langCodes[pos + 1])
+        service.speak("Language: " .. langNames[pos + 1])
+        dlg.dismiss()
+        if parentDlg then parentDlg.show() end
+    end
+    dlg.setView(lv)
+    dlg.show()
+end
+
+-- ==================== MODE DIALOG ====================
+local function showModeDialog(parentDlg)
+    local dlg = LuaDialog(service)
+    dlg.setTitle("AI Processing Mode")
+
+    local ml = LinearLayout(service)
+    ml.setOrientation(1)
+    ml.setPadding(20, 20, 20, 20)
+
+    -- Emoji Toggle
+    local emojiOn  = getBool("emojiEnabled")
+    local emojiBtn = Button(service)
+    emojiBtn.setText(emojiOn and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
+    emojiBtn.setBackgroundColor(emojiOn and 0xFF1B5E20 or 0xFF455A64)
+    emojiBtn.setTextColor(0xFFFFFFFF)
+    emojiBtn.setTextSize(14)
+    local ep = LinearLayout.LayoutParams(-1, -2)
+    ep.setMargins(0, 0, 0, 5)
+    emojiBtn.setLayoutParams(ep)
+    ml.addView(emojiBtn)
+
+    local noteTV = TextView(service)
+    noteTV.setText("Lua emoji engine - 100% works with all 4 providers.")
+    noteTV.setTextSize(11)
+    noteTV.setTextColor(0xFF777777)
+    local ntp = LinearLayout.LayoutParams(-1, -2)
+    ntp.setMargins(0, 0, 0, 18)
+    noteTV.setLayoutParams(ntp)
+    ml.addView(noteTV)
+
+    emojiBtn.setOnClickListener(function()
+        local ns = not getBool("emojiEnabled")
+        saveBool("emojiEnabled", ns)
+        emojiBtn.setText(ns and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
+        emojiBtn.setBackgroundColor(ns and 0xFF1B5E20 or 0xFF455A64)
+        service.speak("Emoji " .. (ns and "enabled" or "disabled"))
+    end)
+
+    local lbl = TextView(service)
+    lbl.setText("Select AI Processing Mode:")
+    lbl.setTextSize(14)
+    lbl.setTextColor(0xFFCCCCCC)
+    lbl.setPadding(0, 0, 0, 10)
+    ml.addView(lbl)
+
+    local curMode = getStr("active_mode", "auto_fix")
+    local mColors = {0xFF006064, 0xFFE65100, 0xFF4A148C, 0xFF1B5E20, 0xFF880E4F}
+
+    local i = 1
+    while i <= #MODES do
+        local modeName = MODES[i]
+        local mKey     = MODE_KEYS[i]
+        local isActive = (curMode == mKey)
+
+        local btn = Button(service)
+        btn.setText((isActive and ">> " or "   ") .. modeName .. (isActive and " <<" or ""))
+        btn.setBackgroundColor(isActive and mColors[i] or 0xFF263238)
+        btn.setTextColor(0xFFFFFFFF)
+        btn.setTextSize(14)
+        local bp = LinearLayout.LayoutParams(-1, -2)
+        bp.setMargins(0, 0, 0, 3)
+        btn.setLayoutParams(bp)
+        ml.addView(btn)
+
+        local descTV = TextView(service)
+        descTV.setText("     " .. MODE_DESC[i])
+        descTV.setTextSize(11)
+        descTV.setTextColor(isActive and 0xFFFFCC00 or 0xFF777777)
+        local dp = LinearLayout.LayoutParams(-1, -2)
+        dp.setMargins(0, 0, 0, 10)
+        descTV.setLayoutParams(dp)
+        ml.addView(descTV)
+
+        local ck = mKey
+        local cn = modeName
+        btn.setOnClickListener(function()
+            saveStr("active_mode", ck)
+            service.speak("Mode: " .. cn)
+            dlg.dismiss()
+            if ck == "translation" then
+                local tDlg = LuaDialog(service)
+                tDlg.setTitle("Select Translation Language")
+                local tlv = ListView(context)
+                tlv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, transLangs))
+                tlv.onItemClick = function(tp, tv2, tpos, tid)
+                    saveStr("targetLang", transLangs[tpos + 1])
+                    service.speak("Translate to: " .. transLangs[tpos + 1])
+                    tDlg.dismiss()
+                    if parentDlg then parentDlg.show() end
+                end
+                tDlg.setView(tlv)
+                tDlg.show()
+            else
+                if parentDlg then parentDlg.show() end
+            end
+        end)
+
+        i = i + 1
+    end
+
+    local backBtn = Button(service)
+    backBtn.setText("Go Back")
+    backBtn.setTextSize(14)
+    backBtn.setBackgroundColor(0xFF37474F)
+    backBtn.setTextColor(0xFFFFFFFF)
+    local bbp = LinearLayout.LayoutParams(-1, -2)
+    bbp.setMargins(0, 18, 0, 0)
+    backBtn.setLayoutParams(bbp)
+    ml.addView(backBtn)
+    backBtn.setOnClickListener(function()
+        dlg.dismiss()
+        if parentDlg then parentDlg.show() end
+    end)
+
+    local sv = ScrollView(service)
+    sv.addView(ml)
+    dlg.setView(sv)
+    dlg.show()
+end
+
+-- ==================== AI ENGINE SETTINGS ====================
+local function showAIEngineDialog(parentDlg)
+    local dlg = LuaDialog(service)
+    dlg.setTitle("AI Engine Settings")
+    dlg.setCancelable(true)
+
+    local ml = LinearLayout(service)
+    ml.setOrientation(1)
+    ml.setPadding(25, 20, 25, 20)
+
+    local s1TV = TextView(service)
+    s1TV.setText("Step 1 - Select AI Provider")
+    s1TV.setTextSize(13)
+    s1TV.setTextColor(0xFFFF9800)
+    s1TV.setPadding(0, 0, 0, 6)
+    ml.addView(s1TV)
+
+    local provSpinner = Spinner(service)
+    local provAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, PROVIDERS)
+    provAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    provSpinner.setAdapter(provAdapter)
+    local curProv = getStr("active_provider", "Groq AI")
+    local pi = 1
+    while pi <= #PROVIDERS do
+        if PROVIDERS[pi] == curProv then provSpinner.setSelection(pi - 1); break end
+        pi = pi + 1
+    end
+    local psp = LinearLayout.LayoutParams(-1, -2)
+    psp.setMargins(0, 0, 0, 6)
+    provSpinner.setLayoutParams(psp)
+    ml.addView(provSpinner)
+
+    local loadBtn = Button(service)
+    loadBtn.setText("Load Selected Provider Config")
+    loadBtn.setTextSize(12)
+    loadBtn.setBackgroundColor(0xFF1565C0)
+    loadBtn.setTextColor(0xFFFFFFFF)
+    local lbp = LinearLayout.LayoutParams(-1, -2)
+    lbp.setMargins(0, 0, 0, 18)
+    loadBtn.setLayoutParams(lbp)
+    ml.addView(loadBtn)
+
+    local infoTV = TextView(service)
+    infoTV.setTextSize(11)
+    infoTV.setTextColor(0xFF888888)
+    infoTV.setPadding(0, 0, 0, 5)
+    ml.addView(infoTV)
+
+    local s2TV = TextView(service)
+    s2TV.setText("Step 2 - Enter API Key")
+    s2TV.setTextSize(13)
+    s2TV.setTextColor(0xFFFF9800)
+    s2TV.setPadding(0, 0, 0, 5)
+    ml.addView(s2TV)
+
+    local keyInput = EditText(service)
+    keyInput.setTextSize(14)
+    keyInput.setPadding(15, 12, 15, 12)
+    keyInput.setBackgroundColor(0xFF1A1A1A)
+    keyInput.setTextColor(0xFFFFFFFF)
+    keyInput.setHintTextColor(0xFF555555)
+    keyInput.setInputType(129)
+    local kp = LinearLayout.LayoutParams(-1, -2)
+    kp.setMargins(0, 0, 0, 10)
+    keyInput.setLayoutParams(kp)
+    ml.addView(keyInput)
+
+    local s3TV = TextView(service)
+    s3TV.setText("Step 3 - Test API Key")
+    s3TV.setTextSize(13)
+    s3TV.setTextColor(0xFFFF9800)
+    s3TV.setPadding(0, 0, 0, 5)
+    ml.addView(s3TV)
+
+    local testBtn = Button(service)
+    testBtn.setText("TEST API KEY")
+    testBtn.setTextSize(13)
+    testBtn.setBackgroundColor(0xFFFF6F00)
+    testBtn.setTextColor(0xFFFFFFFF)
+    local tbp = LinearLayout.LayoutParams(-1, -2)
+    tbp.setMargins(0, 0, 0, 18)
+    testBtn.setLayoutParams(tbp)
+    ml.addView(testBtn)
+
+    local s4TV = TextView(service)
+    s4TV.setText("Step 4 - Select Model")
+    s4TV.setTextSize(13)
+    s4TV.setTextColor(0xFFFF9800)
+    s4TV.setPadding(0, 0, 0, 5)
+    ml.addView(s4TV)
+
+    local modelSpinner = Spinner(service)
+    local msp = LinearLayout.LayoutParams(-1, -2)
+    msp.setMargins(0, 0, 0, 18)
+    modelSpinner.setLayoutParams(msp)
+    ml.addView(modelSpinner)
+
+    local statusTV = TextView(service)
+    statusTV.setTextSize(12)
+    statusTV.setPadding(0, 0, 0, 10)
+    ml.addView(statusTV)
+
+    local s5TV = TextView(service)
+    s5TV.setText("Step 5 - Save and Activate")
+    s5TV.setTextSize(13)
+    s5TV.setTextColor(0xFFFF9800)
+    s5TV.setPadding(0, 0, 0, 5)
+    ml.addView(s5TV)
+
+    local saveBtn = Button(service)
+    saveBtn.setText("SAVE AND SET AS ACTIVE PROVIDER")
+    saveBtn.setTextSize(13)
+    saveBtn.setBackgroundColor(0xFF1B5E20)
+    saveBtn.setTextColor(0xFFFFFFFF)
+    local sbp = LinearLayout.LayoutParams(-1, -2)
+    sbp.setMargins(0, 0, 0, 8)
+    saveBtn.setLayoutParams(sbp)
+    ml.addView(saveBtn)
+
+    local backBtn = Button(service)
+    backBtn.setText("Go Back")
+    backBtn.setTextSize(13)
+    backBtn.setBackgroundColor(0xFF37474F)
+    backBtn.setTextColor(0xFFFFFFFF)
+    local bbp2 = LinearLayout.LayoutParams(-1, -2)
+    backBtn.setLayoutParams(bbp2)
+    ml.addView(backBtn)
+
+    local function loadUI(prov)
+        local cfg = PROV_CFG[prov]
+        if not cfg then return end
+        infoTV.setText("Get key from: " .. cfg.info)
+        keyInput.setHint(cfg.hint)
+        keyInput.setText(getStr(cfg.kp))
+        local models = ALL_MODELS[prov]
+        local ma = ArrayAdapter(service, android.R.layout.simple_spinner_item, models)
+        ma.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        modelSpinner.setAdapter(ma)
+        local saved = getStr(cfg.mp, cfg.dm)
+        local mi = 1
+        while mi <= #models do
+            if models[mi] == saved then modelSpinner.setSelection(mi - 1); break end
+            mi = mi + 1
+        end
+        local isAct = (getStr("active_provider", "Groq AI") == prov)
+        statusTV.setText(isAct and "[ACTIVE] This provider is currently selected." or "[NOT ACTIVE] Tap SAVE to activate.")
+        statusTV.setTextColor(isAct and 0xFF4CAF50 or 0xFFAAAAAA)
+    end
+
+    loadUI(curProv)
+
+    provSpinner.onItemSelected = function(parent, view, pos, id)
+        local pv = PROVIDERS[pos + 1]
+        if pv then loadUI(pv) end
+    end
+
+    loadBtn.setOnClickListener(function()
+        local pv = PROVIDERS[provSpinner.getSelectedItemPosition() + 1]
+        loadUI(pv)
+        service.speak(pv .. " settings loaded")
+    end)
+
+    testBtn.setOnClickListener(function()
+        local pv  = PROVIDERS[provSpinner.getSelectedItemPosition() + 1]
+        local key = keyInput.getText().toString()
+        if key == "" then service.speak("Please enter API key first."); return end
+        testBtn.setText("Testing...")
+        testBtn.setEnabled(false)
+        local url, hdr
+        if pv == "Groq AI" then
+            url = "https://api.groq.com/openai/v1/models"
+            hdr = {["Authorization"] = "Bearer " .. key}
+        elseif pv == "Google Gemini" then
+            url = "https://generativelanguage.googleapis.com/v1beta/models?key=" .. key
+            hdr = {}
+        elseif pv == "OpenAI" then
+            url = "https://api.openai.com/v1/models"
+            hdr = {["Authorization"] = "Bearer " .. key}
+        elseif pv == "OpenRouter" then
+            url = "https://openrouter.ai/api/v1/auth/key"
+            hdr = {["Authorization"] = "Bearer " .. key}
+        end
+        Http.get(url, hdr, function(status, data)
+            testBtn.setText("TEST API KEY")
+            testBtn.setEnabled(true)
+            if status == 200 or status == 429 then
+                service.speak("SUCCESS! " .. pv .. " API key is valid.")
+            elseif status == 401 or status == 403 then
+                service.speak("FAILED! Invalid API key.")
+            else
+                service.speak("Error " .. tostring(status) .. ". Check internet.")
+            end
+        end)
+    end)
+
+    saveBtn.setOnClickListener(function()
+        local pv  = PROVIDERS[provSpinner.getSelectedItemPosition() + 1]
+        local key = keyInput.getText().toString()
+        local sel = modelSpinner.getSelectedItemPosition()
+        local cfg = PROV_CFG[pv]
+        local mds = ALL_MODELS[pv]
+        if key ~= "" then saveStr(cfg.kp, key) end
+        if mds and sel >= 0 then saveStr(cfg.mp, mds[sel + 1]) end
+        saveStr("active_provider", pv)
+        statusTV.setText("[ACTIVE] This provider is currently selected.")
+        statusTV.setTextColor(0xFF4CAF50)
+        service.speak("Saved! Active: " .. pv)
+    end)
+
+    backBtn.setOnClickListener(function()
+        dlg.dismiss()
+        if parentDlg then parentDlg.show() end
+    end)
+
+    local sv = ScrollView(service)
+    sv.addView(ml)
+    dlg.setView(sv)
+    dlg.show()
+end
+
+-- ==================== DICTIONARY DIALOGS ====================
+local function showDictionaryAddDialog()
+    local dlg = LuaDialog(service)
+    dlg.setTitle("Add Word to Dictionary")
+    local layout = {
+        LinearLayout; orientation="vertical"; padding="20dp";
+        {TextView; text="Teach the plugin to correct words it mishears."; textSize="12sp"; textColor="#AAAAAA"; layout_width="fill"; layout_marginBottom="12dp"};
+        {EditText; id="wrongWord";   hint="Wrong word (heard by voice)"; textSize="15sp"; layout_width="fill"; layout_marginBottom="10dp"};
+        {EditText; id="correctWord"; hint="Correct word (replace with)"; textSize="15sp"; layout_width="fill"; layout_marginBottom="15dp"};
+        {Button; text="Add to Dictionary"; layout_width="fill"; backgroundColor="#1B5E20"; textColor="#FFFFFF"; layout_marginBottom="8dp";
+            onClick=function()
+                local w = wrongWord.getText().toString():gsub("^%s+",""):gsub("%s+$","")
+                local c = correctWord.getText().toString():gsub("^%s+",""):gsub("%s+$","")
+                if w ~= "" and c ~= "" then
+                    changeTable[w] = c
+                    saveDictionary()
+                    service.speak("Added. " .. w .. " replaced with " .. c)
+                    dlg.dismiss()
+                else
+                    service.speak("Please fill both fields.")
+                end
+            end};
+        {Button; text="Go Back"; layout_width="fill"; backgroundColor="#37474F"; textColor="#FFFFFF";
+            onClick=function() dlg.dismiss() end};
+    }
+    dlg.setView(loadlayout(layout))
+    dlg.show()
+end
+
+local function showDictionaryListDialog()
+    if next(changeTable) == nil then
+        service.speak("Dictionary is empty. Add words first.")
+        return
+    end
+    local items = {}
+    for w, c in pairs(changeTable) do
+        items[#items + 1] = w .. " >> " .. c
+    end
+    table.sort(items)
+    local dlg = LuaDialog(service)
+    dlg.setTitle("My Dictionary  (" .. #items .. " words)")
+    local lv = ListView(context)
+    lv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, items))
+    lv.onItemClick = function(p, v, pos, id) service.speak(items[pos + 1]) end
+    dlg.setView(lv)
+    dlg.show()
+end
+
+-- ==================== UPDATE CHECKER ====================
+local function checkForUpdates()
+    service.speak("Checking for updates...")
+    local url = "https://raw.githubusercontent.com/AftabAliCSR/csrmultityper/main/version.txt"
+    Http.get(url, {}, function(status, data)
+        if status == 200 and data and data ~= "" then
+            local latest = data:gsub("%s+", "")
+            if latest ~= currentVersion then
+                service.speak("New version " .. latest .. " available! Visit YouTube channel to get it.")
+            else
+                service.speak("You have the latest version " .. currentVersion .. ". No update needed.")
+            end
+        else
+            service.speak("Could not check updates. Visit the YouTube channel.")
+        end
+    end)
+end
+
+-- ==================== ABOUT DIALOG ====================
+local function showAboutDialog(parentDlg)
+    local curProv    = getStr("active_provider", "Groq AI")
+    local curModeKey = getStr("active_mode",     "auto_fix")
+    local curModeName= "Auto Fix"
+    local mi = 1
+    while mi <= #MODE_KEYS do
+        if MODE_KEYS[mi] == curModeKey then curModeName = MODES[mi]; break end
+        mi = mi + 1
+    end
+
+    local dlg = LuaDialog(service)
+    dlg.setTitle("About CSR MultiTyper")
+    local layout = {
+        LinearLayout; orientation="vertical"; padding="20dp";
+        {TextView; text="CSR MultiTyper"; textSize="26sp"; textColor="#2196F3"; gravity="center"; layout_marginBottom="2dp"};
+        {TextView; text="Version " .. currentVersion; textSize="14sp"; textColor="#757575"; gravity="center"; layout_marginBottom="4dp"};
+        {TextView; text="Developer: Aftab Ali | CSR Expert"; textSize="13sp"; textColor="#9E9E9E"; gravity="center"; layout_marginBottom="20dp"};
+        {TextView; text="Current Configuration"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView;
+            text="Provider   : " .. curProv ..
+                 "\nMode       : " .. curModeName ..
+                 "\nLanguage : " .. getStr("selectedLang","Urdu (Pakistan)") ..
+                 "\nEmoji      : " .. (getBool("emojiEnabled") and "ON (Smart Lua Engine)" or "OFF") ..
+                 "\nTranslate: " .. getStr("targetLang","---");
+            textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
+        {TextView; text="What's New in v4.0"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView;
+            text="* 4 AI Providers: Groq, Gemini, OpenAI, OpenRouter\n" ..
+                 "* 5 Modes (all providers):\n" ..
+                 "  Auto Fix, Conversion, Intelligent Writer,\n" ..
+                 "  Professional, Translation\n" ..
+                 "* Smart Emoji Engine (Lua-side, NOT AI)\n" ..
+                 "  Sentence count based, keyword matched\n" ..
+                 "  100+ Urdu and English keyword mappings\n" ..
+                 "  Works with all 4 providers\n" ..
+                 "* API Required Lock\n" ..
+                 "* 15 Voice Languages + 12 Translation Languages\n" ..
+                 "* Custom Dictionary\n" ..
+                 "* Step-by-Step AI Engine Setup\n" ..
+                 "* API Key Tester for all providers\n" ..
+                 "* Auto Update Checker";
+            textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
+        {TextView; text="Support and Contact"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {Button; text="YouTube: CSR Expert Channel"; backgroundColor="#C62828"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
+            onClick=function() service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://youtube.com/@csrexpert-d5v"))) end};
+        {Button; text="Send Feedback on WhatsApp"; backgroundColor="#1B5E20"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
+            onClick=function() service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/923425037026"))) end};
+        {Button; text="Check for New Updates"; backgroundColor="#1565C0"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="15dp";
+            onClick=function() checkForUpdates() end};
+        {Button; text="Go Back"; backgroundColor="#37474F"; textColor="#FFFFFF"; layout_width="fill";
+            onClick=function() dlg.dismiss(); if parentDlg then parentDlg.show() end end};
+    }
+    dlg.setView(loadlayout(layout))
+    dlg.show()
+end
+
+-- ==================== MAIN DIALOG ====================
+local function showMainDialog()
+    local curLang    = getStr("selectedLang",    "Urdu (Pakistan)")
+    local curProv    = getStr("active_provider", "Groq AI")
+    local curModeKey = getStr("active_mode",     "auto_fix")
+    local curModeName= "Auto Fix"
+    local mi = 1
+    while mi <= #MODE_KEYS do
+        if MODE_KEYS[mi] == curModeKey then curModeName = MODES[mi]; break end
+        mi = mi + 1
+    end
+    local keyOk  = hasActiveApiKey()
+    local apiTxt = keyOk and "[API Key: Ready]" or "[No API Key - Open AI Engine Settings]"
+    local apiClr = keyOk and "#4CAF50" or "#F44336"
+
+    mainDlg = LuaDialog(service)
+    local layout = {
+        LinearLayout; orientation="vertical"; padding="20dp";
+        {TextView; text="CSR MultiTyper v" .. currentVersion; textSize="22sp"; textColor="#2196F3"; gravity="center"; layout_marginBottom="3dp"};
+        {TextView; text=curProv .. "  |  " .. curModeName; textSize="12sp"; textColor="#FF9800"; gravity="center"; layout_marginBottom="3dp"};
+        {TextView; text=apiTxt; textSize="11sp"; textColor=apiClr; gravity="center"; layout_marginBottom="12dp"};
+        {Button; text="Start AI Voice Typing"; backgroundColor="#1B5E20"; textColor="#FFFFFF"; textSize="16sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() mainDlg.dismiss(); startVoiceRecognition() end};
+        {Button; text="Language: " .. curLang; backgroundColor="#E65100"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() mainDlg.dismiss(); showLanguageDialog(mainDlg) end};
+        {Button; text="AI Engine Settings"; backgroundColor="#4A148C"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() mainDlg.dismiss(); showAIEngineDialog(mainDlg) end};
+        {Button; text="Mode: " .. curModeName; backgroundColor="#00695C"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() mainDlg.dismiss(); showModeDialog(mainDlg) end};
+        {Button; text="Add to Dictionary"; backgroundColor="#006064"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() showDictionaryAddDialog() end};
+        {Button; text="View Dictionary"; backgroundColor="#1A237E"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() showDictionaryListDialog() end};
+        {Button; text="About and Support"; backgroundColor="#263238"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill"; layout_marginBottom="10dp";
+            onClick=function() mainDlg.dismiss(); showAboutDialog(mainDlg) end};
+        {Button; text="Exit"; backgroundColor="#B71C1C"; textColor="#FFFFFF"; textSize="14sp"; layout_width="fill";
+            onClick=function() mainDlg.dismiss() end};
+    }
+    mainDlg.setView(loadlayout(layout))
+    mainDlg.show()
+end
+
+-- ==================== INIT ====================
+loadDictionary()
+local editText = service.getEditText()
+if editText then
+    startVoiceRecognition()
+else
+    showMainDialog()
+end
