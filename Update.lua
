@@ -9,16 +9,167 @@ import "android.content.Context"
 import "android.net.Uri"
 import "com.androlua.Http"
 import "cjson"
+import "com.androlua.LuaDialog"
+import "android.os.*"
+import "java.io.*"
 
--- CSR MultiTyper v4.0 | All-in-One AI Voice Typing
--- Developer: Aftab Ali (CSR Expert)
+-- CSR MultiTyper v4.1 | All-in-One AI Voice Typing
+-- Developer: Numan Khan (CSR Expert)
 
-local currentVersion = "4.0"
+local currentVersion = "4.1"
 local PREFS_NAME     = "CSRMultiTyper_V4"
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
 local context        = service.getApplicationContext()
+local mainHandler    = Handler(Looper.getMainLooper())
 
+-- ==================== UPDATE CONFIGURATION ====================
+local VERSION_URL = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Version.txt"
+local UPDATE_CODE_URL = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Update.lua"
+local PLUGIN_PATH = "/storage/emulated/0/解说/Plugins/CSR MultiTyper/main.lua"
+local updateInProgress = false
+
+local function trim(s)
+    return s and tostring(s):gsub("^%s*(.-)%s*$", "%1") or ""
+end
+
+-- ==================== ATOMIC UPDATE ENGINE ====================
+local function performAtomicUpdate(mainCode, onlineVersion)
+    if not mainCode or trim(mainCode) == "" then
+        service.speak("Update failed. Code is empty.")
+        return
+    end
+    
+    updateInProgress = true
+    
+    local function updateProcess()
+        local success = false
+        local tempPath = PLUGIN_PATH .. ".temp_update"
+        local f = io.open(tempPath, "w")
+        
+        if f then
+            f:write(mainCode)
+            f:close()
+            
+            local fileExists = io.open(PLUGIN_PATH, "r")
+            if fileExists then
+                fileExists:close()
+                local delSuccess = pcall(function()
+                    os.remove(PLUGIN_PATH)
+                end)
+                if delSuccess then
+                    local renameSuccess = pcall(function()
+                        os.rename(tempPath, PLUGIN_PATH)
+                    end)
+                    if renameSuccess then
+                        success = true
+                    end
+                end
+            else
+                local renameSuccess = pcall(function()
+                    os.rename(tempPath, PLUGIN_PATH)
+                end)
+                if renameSuccess then
+                    success = true
+                end
+            end
+            
+            if not success then
+                pcall(function() os.remove(tempPath) end)
+            end
+        end
+        
+        if success then
+            updateInProgress = false
+            mainHandler.post(Runnable({
+                run = function()
+                    local successDialog = LuaDialog(service)
+                    successDialog.setTitle("Update Successful")
+                    successDialog.setMessage("Plugin successfully updated to version " .. onlineVersion .. ".\n\nPlugin will restart automatically.")
+                    successDialog.setButton("OK", function()
+                        successDialog.dismiss()
+                        mainHandler.postDelayed(Runnable({
+                            run = function()
+                                local pluginFile = io.open(PLUGIN_PATH, "r")
+                                if pluginFile then
+                                    pluginFile:close()
+                                    local func, err = loadfile(PLUGIN_PATH)
+                                    if func then
+                                        pcall(func)
+                                    else
+                                        service.speak("Error reloading plugin: " .. tostring(err))
+                                    end
+                                end
+                            end
+                        }), 2000)
+                    end)
+                    successDialog.show()
+                end
+            }))
+        else
+            updateInProgress = false
+            mainHandler.post(Runnable({
+                run = function()
+                    local eDlg = LuaDialog(service)
+                    eDlg.setTitle("Update Failed")
+                    eDlg.setMessage("Update failed. Please try again.")
+                    eDlg.setButton("OK", function() eDlg.dismiss() end)
+                    eDlg.show()
+                end
+            }))
+        end
+    end
+    
+    local updateThread = Thread(luajava.bindClass("java.lang.Runnable"){
+        run = updateProcess
+    })
+    updateThread.start()
+end
+
+local function checkForUpdatesSilent(manualCheck)
+    if updateInProgress then
+        if manualCheck then service.speak("An update is already in progress. Please wait.") end
+        return
+    end
+    
+    if manualCheck then service.speak("Checking for updates...") end
+    local ts = tostring(os.time())
+    
+    Http.get(VERSION_URL .. "?t=" .. ts, function(code, response)
+        if code == 200 and response then
+            local latest = trim(response)
+            if latest ~= currentVersion then
+                if manualCheck then service.speak("New version " .. latest .. " available.") end
+                
+                Http.get(UPDATE_CODE_URL .. "?t=" .. ts, function(code2, mainCode)
+                    if code2 == 200 and mainCode and trim(mainCode) ~= "" then
+                        mainHandler.post(Runnable({
+                            run = function()
+                                local updateAlertDlg = LuaDialog(service)
+                                updateAlertDlg.setTitle("New Update Available!")
+                                updateAlertDlg.setMessage("A new version (" .. latest .. ") is available.\nCurrent version: " .. currentVersion .. "\n\nWould you like to update now?")
+                                updateAlertDlg.setButton("Update Now", function()
+                                    updateAlertDlg.dismiss()
+                                    performAtomicUpdate(mainCode, latest)
+                                end)
+                                updateAlertDlg.setButton2("Later", function()
+                                    updateAlertDlg.dismiss()
+                                end)
+                                updateAlertDlg.show()
+                            end
+                        }))
+                    end
+                end)
+            else
+                if manualCheck then service.speak("You have the latest version " .. currentVersion) end
+            end
+        else
+            if manualCheck then service.speak("Update check failed. Check your internet connection.") end
+        end
+    end)
+end
+
+-- ==================== PREFS HELPERS ====================
 local function getStr(k,d)   return prefs.getString(k, d or "")        end
 local function getBool(k,d)  return prefs.getBoolean(k, d or false)     end
 local function saveStr(k,v)  prefsEd.putString(k,v);   prefsEd.apply() end
@@ -41,20 +192,24 @@ local PROV_CFG = {
     ["OpenRouter"]    = {kp="or_key",   mp="or_model",   dm="google/gemini-2.0-flash-001", hint="Enter OpenRouter API Key", info="openrouter.ai/keys"},
 }
 
--- ==================== LANGUAGES ====================
+-- ==================== LANGUAGES (v4.1 UPDATED) ====================
 local langNames = {
     "Urdu (Pakistan)","English (US)","English (UK)","Hindi (India)",
     "Arabic (Saudi Arabia)","Persian (Iran)","Pashto (Pakistan)","Sindhi (Pakistan)",
     "Spanish (Spain)","French (France)","German (Germany)","Chinese (Mandarin)",
-    "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)"
+    "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)",
+    "Portuguese (Brazil)","Italian (Italy)","Korean (South Korea)",
+    "Bengali (Bangladesh)","Punjabi (Pakistan)","Indonesian (Indonesia)"
 }
 local langCodes = {
     "ur-PK","en-US","en-GB","hi-IN","ar-SA","fa-IR","ps-PK","sd-PK",
-    "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU"
+    "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU",
+    "pt-BR","it-IT","ko-KR","bn-BD","pa-PK","id-ID"
 }
 local transLangs = {
     "English","Urdu","Hindi","Arabic","Spanish","French",
-    "German","Turkish","Russian","Chinese","Punjabi","Bengali"
+    "German","Turkish","Russian","Chinese","Punjabi","Bengali",
+    "Portuguese","Italian","Indonesian"
 }
 
 -- ==================== MODES ====================
@@ -69,11 +224,7 @@ local MODE_DESC = {
 }
 
 -- ==================== SMART EMOJI ENGINE ====================
--- All emoji below are SAFE: single codepoint, no variation selector (no U+FE0F)
--- One entry per line to avoid any parser issues
-
 local EMOJI_MAP = {
-    -- Islamic / Religious
     {"اللہ",       "🤲"},
     {"Allah",      "🤲"},
     {"الله",       "🤲"},
@@ -89,7 +240,6 @@ local EMOJI_MAP = {
     {"قرآن",       "📖"},
     {"quran",      "📖"},
     {"حدیث",       "📖"},
-    -- Greetings
     {"شکریہ",      "🙏"},
     {"thank",      "🙏"},
     {"please",     "🙏"},
@@ -97,7 +247,6 @@ local EMOJI_MAP = {
     {"hello",      "👋"},
     {"hi ",        "👋"},
     {"bye",        "👋"},
-    -- Happy / Positive
     {"خوش",        "😊"},
     {"happy",      "😊"},
     {"خوشی",       "😊"},
@@ -122,7 +271,6 @@ local EMOJI_MAP = {
     {"like",       "👍"},
     {"love",       "❤"},
     {"محبت",       "❤"},
-    -- Sad / Negative
     {"افسوس",      "😔"},
     {"sad",        "😔"},
     {"دکھ",        "😢"},
@@ -136,7 +284,6 @@ local EMOJI_MAP = {
     {"angry",      "😠"},
     {"رونا",       "😢"},
     {"cry",        "😢"},
-    -- Food / Eat
     {"کھانا",      "🍴"},
     {"food",       "🍴"},
     {"کھایا",      "😋"},
@@ -149,7 +296,6 @@ local EMOJI_MAP = {
     {"پھل",        "🍎"},
     {"fruit",      "🍎"},
     {"دودھ",       "🥛"},
-    -- Travel / Movement
     {"سفر",        "✈"},
     {"travel",     "✈"},
     {"گاڑی",       "🚗"},
@@ -161,7 +307,6 @@ local EMOJI_MAP = {
     {"ٹرین",       "🚂"},
     {"train",      "🚂"},
     {"بس",         "🚌"},
-    -- Work / Complete
     {"کام",        "💼"},
     {"work",       "💼"},
     {"کاروبار",    "💼"},
@@ -172,7 +317,6 @@ local EMOJI_MAP = {
     {"complete",   "✅"},
     {"تیار",       "✅"},
     {"ready",      "✅"},
-    -- Study / Education
     {"پڑھ",        "📚"},
     {"study",      "📚"},
     {"school",     "🏫"},
@@ -182,7 +326,6 @@ local EMOJI_MAP = {
     {"university", "🎓"},
     {"کلاس",       "📚"},
     {"استاد",      "📝"},
-    -- Weather
     {"موسم",       "⛅"},
     {"weather",    "⛅"},
     {"بارش",       "🌧"},
@@ -195,7 +338,6 @@ local EMOJI_MAP = {
     {"wind",       "💨"},
     {"طوفان",      "🌩"},
     {"storm",      "🌩"},
-    -- Health / Medical
     {"بیمار",      "🏥"},
     {"sick",       "🤒"},
     {"دوائی",      "💊"},
@@ -205,7 +347,6 @@ local EMOJI_MAP = {
     {"صحت",        "💪"},
     {"health",     "💪"},
     {"ٹھیک",       "😊"},
-    -- Love / Family
     {"پیار",       "💕"},
     {"family",     "👪"},
     {"ماں",        "👩"},
@@ -214,7 +355,6 @@ local EMOJI_MAP = {
     {"بہن",        "💕"},
     {"بچہ",        "👶"},
     {"child",      "👶"},
-    -- Money / Finance
     {"پیسہ",       "💰"},
     {"money",      "💰"},
     {"روپے",       "💵"},
@@ -223,7 +363,6 @@ local EMOJI_MAP = {
     {"sell",       "💸"},
     {"تنخواہ",     "💰"},
     {"salary",     "💰"},
-    -- Tech / Digital
     {"موبائل",     "📱"},
     {"mobile",     "📱"},
     {"phone",      "📱"},
@@ -236,7 +375,6 @@ local EMOJI_MAP = {
     {"یوٹیوب",     "🎬"},
     {"youtube",    "🎬"},
     {"video",      "🎬"},
-    -- Time of Day
     {"صبح",        "🌅"},
     {"morning",    "🌅"},
     {"شام",        "🌆"},
@@ -247,7 +385,6 @@ local EMOJI_MAP = {
     {"today",      "📅"},
     {"کل",         "📅"},
     {"tomorrow",   "📅"},
-    -- Sport / Fun
     {"کھیل",       "⚽"},
     {"sport",      "⚽"},
     {"کرکٹ",       "🏏"},
@@ -256,7 +393,6 @@ local EMOJI_MAP = {
     {"مزہ",        "😄"},
     {"fun",        "😄"},
     {"خوشگوار",    "😄"},
-    -- Sleep / Rest
     {"سونا",       "😴"},
     {"sleep",      "😴"},
     {"آرام",       "😴"},
@@ -265,14 +401,12 @@ local EMOJI_MAP = {
     {"tired",      "😓"},
 }
 
--- Default emoji pool (safe single-codepoint emoji only, no variation selectors)
 local EMOJI_DEFAULT = {
     "😊","✅","🌟","💪","🎯","😄","🙏","✨","🎉","❤",
     "🔥","💡","👍","🌸","👌","💫","🎊","😎","🤝","⭐",
     "🌈","🎶","🏅","🎁","🌺","💎","🌻","🎵","🏆","😃"
 }
 
--- Pick best emoji based on sentence content
 local function pickEmoji(sentence, idx)
     local i = 1
     while i <= #EMOJI_MAP do
@@ -290,7 +424,6 @@ local function pickEmoji(sentence, idx)
     return EMOJI_DEFAULT[((idx - 1) % #EMOJI_DEFAULT) + 1]
 end
 
--- Split text into sentences (handles English . ! ? AND Urdu stop byte D8 94)
 local function splitIntoSentences(text)
     if not text or text == "" then return {} end
     local sentences = {}
@@ -302,7 +435,6 @@ local function splitIntoSentences(text)
         local b = text:byte(i)
 
         if b == 0xD8 and i < len and text:byte(i+1) == 0x94 then
-            -- Urdu full stop
             cur = cur .. "\xD8\x94"
             local t = cur:match("^%s*(.-)%s*$")
             if t and t ~= "" then
@@ -310,12 +442,9 @@ local function splitIntoSentences(text)
             end
             cur = ""
             i = i + 2
-
         elseif b == 0x2E or b == 0x21 or b == 0x3F then
-            -- English . ! ?
             local nb = (i < len) and text:byte(i + 1) or 0
             if b == 0x2E and nb == 0x2E then
-                -- Part of ... (ellipsis) - keep going
                 cur = cur .. "."
                 i = i + 1
             else
@@ -327,7 +456,6 @@ local function splitIntoSentences(text)
                 cur = ""
                 i = i + 1
             end
-
         elseif b >= 0xF0 then
             cur = cur .. text:sub(i, i + 3)
             i = i + 4
@@ -343,7 +471,6 @@ local function splitIntoSentences(text)
         end
     end
 
-    -- Remaining text without ending punctuation
     local t = cur:match("^%s*(.-)%s*$")
     if t and t ~= "" then
         sentences[#sentences + 1] = t
@@ -352,7 +479,6 @@ local function splitIntoSentences(text)
     return sentences
 end
 
--- Add smart emoji after each sentence (Lua-side, works with ALL providers)
 local function addSmartEmoji(text)
     if not text or text == "" then return text end
     local sentences = splitIntoSentences(text)
@@ -403,8 +529,6 @@ local function applyDictionary(text)
 end
 
 -- ==================== PROMPT ENGINE ====================
--- No emoji instructions in prompts. Lua handles emoji after AI returns.
-
 local function getModePrompt(text, mode, targetLang)
     if mode == "auto_fix" then
         return "You are a text correction assistant.\n" ..
@@ -462,7 +586,6 @@ local function getModePrompt(text, mode, targetLang)
 end
 
 -- ==================== API CALLERS ====================
-
 local function callGroq(prompt, callback)
     local key   = getStr("groq_key")
     local model = getStr("groq_model", "llama-3.3-70b-versatile")
@@ -628,7 +751,6 @@ local function processWithAI(rawText, callback)
             return
         end
         local finalText = result or rawText
-        -- Smart emoji added by Lua (not AI) — works with ALL providers
         if withEmoji and mode ~= "translation" then
             finalText = addSmartEmoji(finalText)
         end
@@ -1098,24 +1220,6 @@ local function showDictionaryListDialog()
     dlg.show()
 end
 
--- ==================== UPDATE CHECKER ====================
-local function checkForUpdates()
-    service.speak("Checking for updates...")
-    local url = "https://raw.githubusercontent.com/AftabAliCSR/csrmultityper/main/version.txt"
-    Http.get(url, {}, function(status, data)
-        if status == 200 and data and data ~= "" then
-            local latest = data:gsub("%s+", "")
-            if latest ~= currentVersion then
-                service.speak("New version " .. latest .. " available! Visit YouTube channel to get it.")
-            else
-                service.speak("You have the latest version " .. currentVersion .. ". No update needed.")
-            end
-        else
-            service.speak("Could not check updates. Visit the YouTube channel.")
-        end
-    end)
-end
-
 -- ==================== ABOUT DIALOG ====================
 local function showAboutDialog(parentDlg)
     local curProv    = getStr("active_provider", "Groq AI")
@@ -1133,7 +1237,7 @@ local function showAboutDialog(parentDlg)
         LinearLayout; orientation="vertical"; padding="20dp";
         {TextView; text="CSR MultiTyper"; textSize="26sp"; textColor="#2196F3"; gravity="center"; layout_marginBottom="2dp"};
         {TextView; text="Version " .. currentVersion; textSize="14sp"; textColor="#757575"; gravity="center"; layout_marginBottom="4dp"};
-        {TextView; text="Developer: Aftab Ali | CSR Expert"; textSize="13sp"; textColor="#9E9E9E"; gravity="center"; layout_marginBottom="20dp"};
+        {TextView; text="Developer: Numan Khan"; textSize="13sp"; textColor="#9E9E9E"; gravity="center"; layout_marginBottom="20dp"};
         {TextView; text="Current Configuration"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text="Provider   : " .. curProv ..
@@ -1142,7 +1246,7 @@ local function showAboutDialog(parentDlg)
                  "\nEmoji      : " .. (getBool("emojiEnabled") and "ON (Smart Lua Engine)" or "OFF") ..
                  "\nTranslate: " .. getStr("targetLang","---");
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        {TextView; text="What's New in v4.0"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView; text="What's New in v4.1"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text="* 4 AI Providers: Groq, Gemini, OpenAI, OpenRouter\n" ..
                  "* 5 Modes (all providers):\n" ..
@@ -1153,11 +1257,11 @@ local function showAboutDialog(parentDlg)
                  "  100+ Urdu and English keyword mappings\n" ..
                  "  Works with all 4 providers\n" ..
                  "* API Required Lock\n" ..
-                 "* 15 Voice Languages + 12 Translation Languages\n" ..
+                 "* 21 Voice Languages + 15 Translation Languages\n" ..
                  "* Custom Dictionary\n" ..
                  "* Step-by-Step AI Engine Setup\n" ..
                  "* API Key Tester for all providers\n" ..
-                 "* Auto Update Checker";
+                 "* Auto Update Checker (Atomic Engine)";
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
         {TextView; text="Support and Contact"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {Button; text="YouTube: CSR Expert Channel"; backgroundColor="#C62828"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
@@ -1165,7 +1269,7 @@ local function showAboutDialog(parentDlg)
         {Button; text="Send Feedback on WhatsApp"; backgroundColor="#1B5E20"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
             onClick=function() service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/923425037026"))) end};
         {Button; text="Check for New Updates"; backgroundColor="#1565C0"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="15dp";
-            onClick=function() checkForUpdates() end};
+            onClick=function() checkForUpdatesSilent(true) end};
         {Button; text="Go Back"; backgroundColor="#37474F"; textColor="#FFFFFF"; layout_width="fill";
             onClick=function() dlg.dismiss(); if parentDlg then parentDlg.show() end end};
     }
@@ -1217,6 +1321,15 @@ end
 
 -- ==================== INIT ====================
 loadDictionary()
+
+-- Background Update Check After 3 Seconds
+Thread(luajava.bindClass("java.lang.Runnable"){
+    run = function()
+        Thread.sleep(3000)
+        checkForUpdatesSilent(false)
+    end
+}).start()
+
 local editText = service.getEditText()
 if editText then
     startVoiceRecognition()
