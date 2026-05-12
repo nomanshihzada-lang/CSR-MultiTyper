@@ -13,10 +13,10 @@ import "com.androlua.LuaDialog"
 import "android.os.*"
 import "java.io.*"
 
--- CSR MultiTyper v4.1 | All-in-One AI Voice Typing
+-- CSR MultiTyper v4.2 | All-in-One AI Voice Typing
 -- Developer: Numan Khan (CSR Expert)
 
-local currentVersion = "4.1"
+local currentVersion = "4.2"
 local PREFS_NAME     = "CSRMultiTyper_V4"
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
@@ -85,7 +85,7 @@ local function performAtomicUpdate(mainCode, onlineVersion)
                 run = function()
                     local successDialog = LuaDialog(service)
                     successDialog.setTitle("Update Successful")
-                    successDialog.setMessage("Plugin successfully updated to version " .. onlineVersion .. ".\n\nPlugin will restart automatically.")
+                    successDialog.setMessage("CSR MultiTyper v" .. onlineVersion .. " par successfully update ho gaya hai.\n\nPlugin ab automatically restart hoga.")
                     successDialog.setButton("OK", function()
                         successDialog.dismiss()
                         mainHandler.postDelayed(Runnable({
@@ -101,7 +101,7 @@ local function performAtomicUpdate(mainCode, onlineVersion)
                                     end
                                 end
                             end
-                        }), 2000)
+                        }), 1000)
                     end)
                     successDialog.show()
                 end
@@ -112,7 +112,7 @@ local function performAtomicUpdate(mainCode, onlineVersion)
                 run = function()
                     local eDlg = LuaDialog(service)
                     eDlg.setTitle("Update Failed")
-                    eDlg.setMessage("Update failed. Please try again.")
+                    eDlg.setMessage("Update failed. File system permission issue. Please try again.")
                     eDlg.setButton("OK", function() eDlg.dismiss() end)
                     eDlg.show()
                 end
@@ -147,7 +147,7 @@ local function checkForUpdatesSilent(manualCheck)
                             run = function()
                                 local updateAlertDlg = LuaDialog(service)
                                 updateAlertDlg.setTitle("New Update Available!")
-                                updateAlertDlg.setMessage("A new version (" .. latest .. ") is available.\nCurrent version: " .. currentVersion .. "\n\nWould you like to update now?")
+                                updateAlertDlg.setMessage("A new version (" .. latest .. ") is available.\nCurrent version: " .. currentVersion .. "\n\nKya aap abhi update karna chahte hain?")
                                 updateAlertDlg.setButton("Update Now", function()
                                     updateAlertDlg.dismiss()
                                     performAtomicUpdate(mainCode, latest)
@@ -192,24 +192,27 @@ local PROV_CFG = {
     ["OpenRouter"]    = {kp="or_key",   mp="or_model",   dm="google/gemini-2.0-flash-001", hint="Enter OpenRouter API Key", info="openrouter.ai/keys"},
 }
 
--- ==================== LANGUAGES (v4.1 UPDATED) ====================
+-- ==================== LANGUAGES (v4.2 UPDATED) ====================
 local langNames = {
     "Urdu (Pakistan)","English (US)","English (UK)","Hindi (India)",
     "Arabic (Saudi Arabia)","Persian (Iran)","Pashto (Pakistan)","Sindhi (Pakistan)",
     "Spanish (Spain)","French (France)","German (Germany)","Chinese (Mandarin)",
     "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)",
     "Portuguese (Brazil)","Italian (Italy)","Korean (South Korea)",
-    "Bengali (Bangladesh)","Punjabi (Pakistan)","Indonesian (Indonesia)"
+    "Bengali (Bangladesh)","Punjabi (Pakistan)","Indonesian (Indonesia)",
+    "Dutch (Netherlands)", "Vietnamese (Vietnam)", "Thai (Thailand)", "Malay (Malaysia)"
 }
 local langCodes = {
     "ur-PK","en-US","en-GB","hi-IN","ar-SA","fa-IR","ps-PK","sd-PK",
     "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU",
-    "pt-BR","it-IT","ko-KR","bn-BD","pa-PK","id-ID"
+    "pt-BR","it-IT","ko-KR","bn-BD","pa-PK","id-ID",
+    "nl-NL", "vi-VN", "th-TH", "ms-MY"
 }
 local transLangs = {
     "English","Urdu","Hindi","Arabic","Spanish","French",
     "German","Turkish","Russian","Chinese","Punjabi","Bengali",
-    "Portuguese","Italian","Indonesian"
+    "Portuguese","Italian","Indonesian","Dutch","Vietnamese",
+    "Thai","Malay"
 }
 
 -- ==================== MODES ====================
@@ -586,6 +589,7 @@ local function getModePrompt(text, mode, targetLang)
 end
 
 -- ==================== API CALLERS ====================
+
 local function callGroq(prompt, callback)
     local key   = getStr("groq_key")
     local model = getStr("groq_model", "llama-3.3-70b-versatile")
@@ -1246,7 +1250,7 @@ local function showAboutDialog(parentDlg)
                  "\nEmoji      : " .. (getBool("emojiEnabled") and "ON (Smart Lua Engine)" or "OFF") ..
                  "\nTranslate: " .. getStr("targetLang","---");
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        {TextView; text="What's New in v4.1"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView; text="What's New in v4.2"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text="* 4 AI Providers: Groq, Gemini, OpenAI, OpenRouter\n" ..
                  "* 5 Modes (all providers):\n" ..
@@ -1257,7 +1261,7 @@ local function showAboutDialog(parentDlg)
                  "  100+ Urdu and English keyword mappings\n" ..
                  "  Works with all 4 providers\n" ..
                  "* API Required Lock\n" ..
-                 "* 21 Voice Languages + 15 Translation Languages\n" ..
+                 "* 25 Voice Languages + 19 Translation Languages (New added)\n" ..
                  "* Custom Dictionary\n" ..
                  "* Step-by-Step AI Engine Setup\n" ..
                  "* API Key Tester for all providers\n" ..
