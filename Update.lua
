@@ -13,10 +13,10 @@ import "com.androlua.LuaDialog"
 import "android.os.*"
 import "java.io.*"
 
--- CSR MultiTyper v4.3 | All-in-One AI Voice Typing
+-- CSR MultiTyper v4.2 | All-in-One AI Voice Typing
 -- Developer: Aftab Ali (CSR Expert)
 
-local currentVersion = "4.3"
+local currentVersion = "4.2"
 local PREFS_NAME     = "CSRMultiTyper_V4"
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
@@ -132,7 +132,7 @@ local PROV_CFG = {
     ["OpenRouter"]    = {kp="or_key",  mp="or_model",  dm="google/gemini-2.0-flash-001", hint="Enter OpenRouter API Key", info="openrouter.ai/keys"},
 }
 
--- ==================== LANGUAGES (50 Voice, 50 Translation) ====================
+-- ==================== LANGUAGES ====================
 local langNames = {
     "Urdu (Pakistan)","English (US)","English (UK)","Hindi (India)",
     "Arabic (Saudi Arabia)","Persian (Iran)","Pashto (Pakistan)","Sindhi (Pakistan)",
@@ -140,34 +140,18 @@ local langNames = {
     "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)",
     "Portuguese (Brazil)","Italian (Italy)","Korean (South Korea)",
     "Bengali (Bangladesh)","Punjabi (Pakistan)","Indonesian (Indonesia)",
-    "Dutch (Netherlands)","Vietnamese (Vietnam)","Thai (Thailand)","Malay (Malaysia)",
-    "Tamil (India)","Telugu (India)","Marathi (India)","Gujarati (India)",
-    "Kannada (India)","Malayalam (India)","Nepali (Nepal)","Sinhala (Sri Lanka)",
-    "Burmese (Myanmar)","Tagalog (Philippines)","Swahili (Kenya)","Afrikaans (South Africa)",
-    "Polish (Poland)","Ukrainian (Ukraine)","Czech (Czech Republic)","Slovak (Slovakia)",
-    "Romanian (Romania)","Hungarian (Hungary)","Greek (Greece)","Swedish (Sweden)",
-    "Danish (Denmark)","Finnish (Finland)","Norwegian (Norway)","Hebrew (Israel)","Uzbek (Uzbekistan)"
+    "Dutch (Netherlands)","Vietnamese (Vietnam)","Thai (Thailand)","Malay (Malaysia)"
 }
 local langCodes = {
     "ur-PK","en-US","en-GB","hi-IN","ar-SA","fa-IR","ps-PK","sd-PK",
     "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU",
     "pt-BR","it-IT","ko-KR","bn-BD","pa-PK","id-ID",
-    "nl-NL","vi-VN","th-TH","ms-MY",
-    "ta-IN","te-IN","mr-IN","gu-IN",
-    "kn-IN","ml-IN","ne-NP","si-LK",
-    "my-MM","tl-PH","sw-KE","af-ZA",
-    "pl-PL","uk-UA","cs-CZ","sk-SK",
-    "ro-RO","hu-HU","el-GR","sv-SE",
-    "da-DK","fi-FI","no-NO","he-IL","uz-UZ"
+    "nl-NL","vi-VN","th-TH","ms-MY"
 }
 local transLangs = {
     "English","Urdu","Hindi","Arabic","Spanish","French",
     "German","Turkish","Russian","Chinese","Punjabi","Bengali",
-    "Portuguese","Italian","Indonesian","Dutch","Vietnamese","Thai","Malay",
-    "Persian","Pashto","Sindhi","Japanese","Korean","Tamil","Telugu","Marathi",
-    "Gujarati","Kannada","Malayalam","Nepali","Sinhala","Burmese","Tagalog",
-    "Swahili","Afrikaans","Polish","Ukrainian","Czech","Slovak","Romanian",
-    "Hungarian","Greek","Swedish","Danish","Finnish","Norwegian","Hebrew","Kurdish","Uzbek"
+    "Portuguese","Italian","Indonesian","Dutch","Vietnamese","Thai","Malay"
 }
 
 -- ==================== MODES (8 total) ====================
@@ -1011,20 +995,41 @@ local function showAboutDialog(onBack)
                  "\nEmoji          : " .. (getBool("emojiEnabled") and "ON - " .. emojiStyleName or "OFF") ..
                  "\nTranslate   : " .. getStr("targetLang","---");
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        {TextView; text="What's New in v4.3"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView; text="What's New in v4.0 and v4.2"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text=
-                "v4.3 (Current Update):\n" ..
-                "* Huge Language Pack Update!\n" ..
-                "* Expanded Voice Typing to 50 Languages.\n" ..
-                "* Expanded Translation Mode to 50 Languages.\n\n" ..
-                "v4.0 & v4.2 Highlights:\n" ..
-                "* 4 AI Providers (Groq, Gemini, OpenAI, OpenRouter)\n" ..
-                "* 8 AI Processing Modes (Auto Fix, Conversion,\n" ..
-                "  Intelligent, Professional, Translation, Funny,\n" ..
-                "  Shayari, Breaking News)\n" ..
-                "* Smart Emoji Engine (Works offline via Lua)\n" ..
-                "* Auto Update Engine (GitHub-based background sync)";
+                "v4.0 (Core Features):\n" ..
+                "* 4 AI Providers: Groq AI, Google Gemini,\n" ..
+                "  OpenAI, OpenRouter\n" ..
+                "* 5 Processing Modes: Auto Fix, Conversion,\n" ..
+                "  Intelligent Writer, Professional, Translation\n" ..
+                "* Smart Emoji Engine (Lua-side, NOT AI)\n" ..
+                "  Works with all 4 providers\n" ..
+                "* API Required Lock\n" ..
+                "* 15 Voice Input Languages\n" ..
+                "* Custom File-based Dictionary\n" ..
+                "* Step-by-Step AI Engine Setup\n" ..
+                "* API Key Tester for all 4 providers\n" ..
+                "* Model Selector per provider\n" ..
+                "* Fixed syntax: safe emoji (no variation selectors)\n\n" ..
+                "v4.2 (New Additions):\n" ..
+                "* 3 Creative Modes added (total 8 modes):\n" ..
+                "  - Funny Mode (humorous rewrite)\n" ..
+                "  - Shayari Mode (Urdu poetry)\n" ..
+                "  - Breaking News Mode (dramatic style)\n" ..
+                "* Emoji Style Spinner (6 styles):\n" ..
+                "  Smart Match, Expressive, Hearts,\n" ..
+                "  Stars, Nature, Fun Pack\n" ..
+                "* Auto Update Engine (GitHub-based)\n" ..
+                "  Background check on startup\n" ..
+                "  Atomic update (temp file + rename)\n" ..
+                "  Auto plugin reload after update\n" ..
+                "* Back navigation fixed in all dialogs\n" ..
+                "* 25 Voice Languages (10 new added)\n" ..
+                "* 19 Translation Languages (7 new added)\n" ..
+                "* WhatsApp and Telegram keywords in emoji map\n" ..
+                "* Improved error messages for all providers\n" ..
+                "* Better Gemini response parsing";
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
         {TextView; text="Support and Contact"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {Button; text="YouTube: CSR Expert Channel"; backgroundColor="#C62828"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
