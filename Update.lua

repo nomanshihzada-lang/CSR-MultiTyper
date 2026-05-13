@@ -12,13 +12,21 @@ import "cjson"
 import "com.androlua.LuaDialog"
 import "android.os.*"
 import "java.io.*"
+import "java.util.HashMap"
 
--- CSR MultiTyper v3.2 | All-in-One AI Voice Typing Plugin
+-- ============================================================
+-- CSR MultiTyper v4.0 | All-in-One AI Voice Typing Plugin
 -- Developer: Aftab Ali (CSR Expert)
--- GitHub: https://github.com/nomanshihzada-lang/CSR-MultiTyper
+-- ============================================================
 
-local currentVersion = "3.2"
-local PREFS_NAME     = "CSRMultiTyper_V32"
+-- Set HTTP timeouts to prevent hanging requests
+pcall(function()
+    Http.setConnTimeout(60000)
+    Http.setReadTimeout(60000)
+end)
+
+local currentVersion = "4.0"
+local PREFS_NAME     = "CSRMultiTyper_V4"   -- SAME as before, keeps user's saved keys
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
 local context        = service.getApplicationContext()
@@ -31,10 +39,10 @@ local function saveStr(k,v)  prefsEd.putString(k,v);  prefsEd.apply() end
 local function saveBool(k,v) prefsEd.putBoolean(k,v); prefsEd.apply() end
 
 -- ==================== AUTO UPDATE ====================
-local VERSION_URL    = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Version.txt"
-local UPDATE_URL     = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Update.lua"
-local PLUGIN_PATH    = "/storage/emulated/0/\xE8\xA7\xA3\xE8\xAF\xB4/Plugins/CSR MultiTyper/main.lua"
-local updateRunning  = false
+local VERSION_URL   = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Version.txt"
+local UPDATE_URL    = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Update.lua"
+local PLUGIN_PATH   = "/storage/emulated/0/\xE8\xA7\xA3\xE8\xAF\xB4/Plugins/CSR MultiTyper/main.lua"
+local updateRunning = false
 
 local function trim(s)
     return s and tostring(s):gsub("^%s*(.-)%s*$", "%1") or ""
@@ -42,9 +50,7 @@ end
 
 local function performUpdate(code, ver)
     if not code or trim(code) == "" then
-        mainHandler.post(Runnable({run=function()
-            service.speak("Update failed: empty file received")
-        end}))
+        service.speak("Update failed: empty file")
         return
     end
     updateRunning = true
@@ -53,9 +59,7 @@ local function performUpdate(code, ver)
         local f   = io.open(tmp, "w")
         if not f then
             updateRunning = false
-            mainHandler.post(Runnable({run=function()
-                service.speak("Update failed: cannot write file. Check storage permission.")
-            end}))
+            service.speak("Update failed: cannot write. Check storage permission.")
             return
         end
         f:write(code); f:close()
@@ -79,9 +83,7 @@ local function performUpdate(code, ver)
             end}))
         else
             pcall(os.remove, tmp)
-            mainHandler.post(Runnable({run=function()
-                service.speak("Update failed: could not rename file.")
-            end}))
+            service.speak("Update failed: rename error.")
         end
     end
     Thread(luajava.bindClass("java.lang.Runnable"){run=doIt}).start()
@@ -89,35 +91,19 @@ end
 
 local function checkForUpdates(manual)
     if updateRunning then
-        if manual then
-            mainHandler.post(Runnable({run=function()
-                service.speak("Update already in progress. Please wait.")
-            end}))
-        end
+        if manual then service.speak("Update already in progress.") end
         return
     end
-    if manual then
-        mainHandler.post(Runnable({run=function()
-            service.speak("Checking for updates...")
-        end}))
-    end
+    if manual then service.speak("Checking for updates...") end
     local ts = tostring(os.time())
     Http.get(VERSION_URL .. "?t=" .. ts, {}, function(code, resp)
         if code ~= 200 or not resp then
-            if manual then
-                mainHandler.post(Runnable({run=function()
-                    service.speak("Update check failed. Check internet connection.")
-                end}))
-            end
+            if manual then service.speak("Update check failed. Check internet.") end
             return
         end
         local latest = trim(resp)
         if latest == "" or latest == currentVersion then
-            if manual then
-                mainHandler.post(Runnable({run=function()
-                    service.speak("You have the latest version " .. currentVersion)
-                end}))
-            end
+            if manual then service.speak("You are on the latest version " .. currentVersion) end
             return
         end
         Http.get(UPDATE_URL .. "?t=" .. ts, {}, function(code2, newCode)
@@ -147,14 +133,13 @@ local ALL_MODELS = {
         "mixtral-8x7b-32768",
         "gemma2-9b-it",
         "deepseek-r1-distill-llama-70b",
-        "llama-3.2-90b-text-preview",
     },
     ["Google Gemini"] = {
-        "gemini-2.5-flash-preview-04-17",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
+        "gemini-2.5-flash-preview-04-17",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
+        "gemini-2.0-flash-lite",
     },
     ["OpenAI"] = {
         "gpt-4o",
@@ -162,11 +147,9 @@ local ALL_MODELS = {
         "gpt-4-turbo",
         "gpt-4",
         "gpt-3.5-turbo",
-        "o1-mini",
     },
     ["OpenRouter"] = {
         "google/gemini-2.0-flash-001",
-        "google/gemini-2.5-flash-preview-05-20",
         "anthropic/claude-3.5-sonnet",
         "anthropic/claude-3-haiku",
         "meta-llama/llama-3.3-70b-instruct",
@@ -224,21 +207,21 @@ local MODE_KEYS = {
     "motivational","breaking_news","sms_style"
 }
 local MODE_DESC = {
-    "Fix spelling mistakes and add proper punctuation",
-    "Mixed Script: Urdu structure with English names and terms",
-    "Enhance text quality, grammar, vocabulary and natural flow",
-    "Formal professional language for business communication",
+    "Fix spelling and add proper punctuation",
+    "Mixed Script: Urdu structure + English names/terms",
+    "Enhance text quality, grammar and natural flow",
+    "Formal professional business communication style",
     "Translate voice input to selected target language",
-    "Rewrite in a funny, witty and entertaining comedy style",
-    "Express text in romantic, loving and poetic tone",
+    "Rewrite in funny witty entertaining comedy style",
+    "Express in romantic loving and poetic tone",
     "Convert to beautiful classical Urdu Shayari poetry",
-    "Rewrite as powerful motivational and inspirational message",
+    "Powerful motivational and inspirational message",
     "Dramatic breaking news announcement style",
     "Short crisp SMS and WhatsApp message style"
 }
 local MODE_COLORS = {
-    0xFF006064, 0xFFE65100, 0xFF4A148C, 0xFF1B5E20, 0xFF880E4F,
-    0xFFE91E63, 0xFFAD1457, 0xFF795548, 0xFF1565C0, 0xFFB71C1C, 0xFF00838F
+    0xFF006064,0xFFE65100,0xFF4A148C,0xFF1B5E20,0xFF880E4F,
+    0xFFE91E63,0xFFAD1457,0xFF795548,0xFF1565C0,0xFFB71C1C,0xFF00838F
 }
 
 -- ==================== OUTPUT FORMAT SPINNER ====================
@@ -246,18 +229,12 @@ local FORMAT_STYLES = {"Normal Text","Short and Crisp","Detailed","Bullet Points
 local FORMAT_KEYS   = {"normal","short","detailed","bullets","numbered","paragraph"}
 
 local function getFormatInstruction(fmt)
-    if fmt == "short" then
-        return "\nIMPORTANT: Keep output very short and crisp. Maximum 2-3 sentences."
-    elseif fmt == "detailed" then
-        return "\nIMPORTANT: Provide a detailed and elaborate response."
-    elseif fmt == "bullets" then
-        return "\nIMPORTANT: Format the output as bullet points using - or *."
-    elseif fmt == "numbered" then
-        return "\nIMPORTANT: Format the output as numbered steps (1. 2. 3.)."
-    elseif fmt == "paragraph" then
-        return "\nIMPORTANT: Format as clean well-structured paragraphs."
-    end
-    return ""  -- normal: no special instruction
+    if fmt == "short"     then return "\nIMPORTANT: Keep output very short and crisp. Maximum 2-3 sentences."
+    elseif fmt == "detailed"  then return "\nIMPORTANT: Provide a detailed and elaborate response."
+    elseif fmt == "bullets"   then return "\nIMPORTANT: Format output as bullet points using - symbol."
+    elseif fmt == "numbered"  then return "\nIMPORTANT: Format as numbered steps: 1. 2. 3."
+    elseif fmt == "paragraph" then return "\nIMPORTANT: Format as clean well-structured paragraphs." end
+    return ""
 end
 
 -- ==================== SMART EMOJI ENGINE ====================
@@ -272,7 +249,6 @@ local STYLE_POOLS = {
     fun        = {"🎉","🎊","🎈","🥳","🎯","🎮","🎸","🎵","🎶","🏆","🎁","🎪"},
 }
 
--- Safe emoji only (no variation selectors U+FE0F, no ZWJ sequences)
 local EMOJI_MAP = {
     {"اللہ","🤲"},{"Allah","🤲"},{"الله","🤲"},
     {"دعا","🙏"},{"prayer","🙏"},{"نماز","🕌"},
@@ -333,13 +309,12 @@ local EMOJI_MAP = {
     {"fun","😄"},{"خوشگوار","😄"},
     {"سونا","😴"},{"sleep","😴"},{"آرام","😴"},
     {"rest","😴"},{"تھکان","😓"},{"tired","😓"},
-    -- Mode-specific keywords
     {"مذاق","😂"},{"joke","😂"},{"funny","😂"},{"ہنسی","😂"},
-    {"romantic","💕"},{"محبوب","💕"},{"دل","❤"},{"heart","❤"},
+    {"romantic","💕"},{"محبوب","💕"},{"دل","❤"},
     {"شعر","🌹"},{"شاعری","🌹"},{"غزل","🌹"},{"poetry","🌹"},
-    {"حوصلہ","💪"},{"motivat","💪"},{"inspir","🌟"},{"کامیابی","🏆"},
+    {"حوصلہ","💪"},{"motivat","💪"},{"inspir","🌟"},
     {"خبر","📰"},{"news","📰"},{"breaking","📰"},{"flash","📰"},
-    {"sms","📱"},{"message","💬"},{"پیغام","💬"},{"text","📝"},
+    {"sms","📱"},{"message","💬"},{"پیغام","💬"},
 }
 
 local EMOJI_DEFAULT = {
@@ -413,7 +388,7 @@ local function addSmartEmoji(text)
 end
 
 -- ==================== DICTIONARY ====================
-local dictFile    = os.getenv("EXTERNAL_STORAGE") .. "/csrmultityper_v32_dict.dat"
+local dictFile    = os.getenv("EXTERNAL_STORAGE") .. "/csrmultityper_v4_dict.dat"
 local changeTable = {}
 
 local function loadDictionary()
@@ -441,261 +416,271 @@ local function applyDictionary(text)
     return text
 end
 
--- ==================== PROMPT ENGINE (11 modes) ====================
+-- ==================== PROMPT ENGINE ====================
 local function getModePrompt(text, mode, targetLang)
     local fmt = getFormatInstruction(getStr("outputFormat","normal"))
 
     if mode == "auto_fix" then
         return "You are a text correction assistant.\n" ..
                "1. Fix ALL spelling mistakes in Urdu and English.\n" ..
-               "2. Add missing punctuation marks (. , ? ! ).\n" ..
-               "3. Fix grammar errors while keeping original meaning.\n" ..
-               "4. Keep EXACT original language — do NOT translate.\n" ..
-               fmt ..
-               "\nReturn ONLY the corrected text.\n\nText: " .. text
+               "2. Add proper punctuation (. , ? !).\n" ..
+               "3. Fix grammar keeping original meaning.\n" ..
+               "4. Keep original language. Do NOT translate." ..
+               fmt .. "\nReturn ONLY the corrected text.\n\nText: " .. text
 
     elseif mode == "conversion" then
-        return "You are a Mixed Script text converter.\n\n" ..
+        return "You are a Mixed Script converter.\n" ..
                "STRICT RULES:\n" ..
                "1. Keep ALL sentence structure in original Urdu/Hindi.\n" ..
-               "2. Identify: people names, cities, countries, brands, tech terms, English loanwords.\n" ..
-               "3. Convert ONLY those identified words to English (Latin) letters.\n" ..
-               "4. ALL other Urdu/Hindi words MUST stay in Arabic script.\n" ..
-               "5. Do NOT translate the sentence.\n\n" ..
-               "REFERENCE EXAMPLES:\n" ..
-               "Input:  mera nam aftab ali hai pakistan main rahta hun\n" ..
-               "Output: mera nam Aftab Ali hai Pakistan main rahta hun\n\n" ..
-               "Input:  mujhay mobile charge karna hai youtube per video dekhi\n" ..
-               "Output: mujhay Mobile Charge karna hai YouTube per Video dekhi\n" ..
-               fmt ..
-               "\nNow convert:\n" .. text
+               "2. Find: people names, cities, countries, brands, tech terms, English loanwords.\n" ..
+               "3. Convert ONLY those words to English (Latin) letters.\n" ..
+               "4. ALL other Urdu/Hindi words stay in Arabic script.\n" ..
+               "5. Do NOT translate.\n" ..
+               "EXAMPLES:\n" ..
+               "In: mera nam aftab hai pakistan main rahta hun\n" ..
+               "Out: mera nam Aftab hai Pakistan main rahta hun\n" ..
+               "In: mobile charge karna hai youtube dekhna hai\n" ..
+               "Out: Mobile Charge karna hai YouTube dekhna hai\n" ..
+               fmt .. "\nConvert:\n" .. text
 
     elseif mode == "intelligent" then
-        return "You are an advanced AI Writing Enhancement Assistant.\n" ..
-               "Transform the input text with these improvements:\n" ..
-               "1. Make it significantly more articulate, natural, and engaging.\n" ..
-               "2. Correct ALL grammatical errors and awkward phrasing.\n" ..
-               "3. Upgrade vocabulary to more precise and impactful words.\n" ..
+        return "You are an AI Writing Enhancement Assistant.\n" ..
+               "1. Make text significantly more articulate and engaging.\n" ..
+               "2. Correct ALL grammar errors and awkward phrasing.\n" ..
+               "3. Upgrade vocabulary to more precise impactful words.\n" ..
                "4. Improve sentence structure and logical flow.\n" ..
-               "5. Preserve the original meaning and language.\n" ..
-               fmt ..
-               "\nReturn ONLY the enhanced text.\n\nOriginal: " .. text
+               "5. Preserve original meaning and language (Urdu/Hindi/English)." ..
+               fmt .. "\nReturn ONLY the enhanced text.\n\nOriginal: " .. text
 
     elseif mode == "professional" then
         return "You are a Professional Business Writing Expert.\n" ..
-               "Rewrite this text with professional excellence:\n" ..
-               "1. Use formal, polished, and sophisticated language.\n" ..
-               "2. Apply vocabulary suitable for official or business communication.\n" ..
-               "3. Ensure impeccable grammar and courteous tone.\n" ..
-               "4. Structure sentences for clarity and impact.\n" ..
-               "5. Keep the original language (Urdu/English) and core message.\n\n" ..
+               "Rewrite with professional excellence:\n" ..
+               "1. Formal, polished, sophisticated language.\n" ..
+               "2. Vocabulary suitable for official/business communication.\n" ..
+               "3. Impeccable grammar and courteous tone.\n" ..
+               "4. Keep original language (Urdu/English) and core message.\n" ..
                "EXAMPLES:\n" ..
-               "Input: main kl nai aa sakta\n" ..
-               "Output: Mujhe afsos hai ke main kal hazir nahi ho sakuunga.\n\n" ..
-               "Input: yeh kaam theek nahi hua\n" ..
-               "Output: Is kaam ke nataaij kafi had tak toqquat ke mutabiq nahi hain.\n" ..
-               fmt ..
-               "\nReturn ONLY the rewritten text.\n\nText: " .. text
+               "In: main kal nai aa sakta\n" ..
+               "Out: Mujhe afsos hai main kal hazir nahi ho sakuunga.\n" ..
+               "In: yeh kaam theek nahi hua\n" ..
+               "Out: Is kaam ke nataaij toqquat ke mutabiq nahi hain." ..
+               fmt .. "\nReturn ONLY rewritten text.\n\nText: " .. text
 
     elseif mode == "translation" then
         local lang = targetLang or "English"
         return "You are a professional multilingual translator.\n" ..
-               "1. First fix any spelling mistakes in the input.\n" ..
-               "2. Translate the corrected text accurately into " .. lang .. " language.\n" ..
-               "3. Ensure the translation sounds natural in " .. lang .. ".\n" ..
-               "4. Preserve the original meaning and emotional tone.\n" ..
-               fmt ..
-               "\nReturn ONLY the translated text in " .. lang .. ".\n\nText: " .. text
+               "1. Fix any spelling mistakes in the input first.\n" ..
+               "2. Translate accurately and naturally into " .. lang .. ".\n" ..
+               "3. Preserve the original meaning and emotional tone.\n" ..
+               "4. Ensure translation sounds natural in " .. lang .. "." ..
+               fmt .. "\nReturn ONLY the translated text in " .. lang .. ".\n\nText: " .. text
 
     elseif mode == "funny" then
         return "You are a talented comedy writer and stand-up comedian.\n" ..
-               "Transform this text into something hilarious and entertaining:\n" ..
-               "1. Use clever wordplay, witty observations, or gentle exaggeration.\n" ..
+               "Transform this text into something hilarious:\n" ..
+               "1. Use clever wordplay, witty observations, gentle exaggeration.\n" ..
                "2. Add comic timing and funny comparisons.\n" ..
-               "3. Keep it light-hearted, clean, and fun for everyone.\n" ..
+               "3. Keep it light-hearted, clean, fun for everyone.\n" ..
                "4. Preserve the original topic but make it laugh-worthy.\n" ..
-               "5. Keep the original language (Urdu/Hindi/English).\n" ..
-               fmt ..
-               "\nReturn ONLY the funny rewritten text.\n\nText: " .. text
+               "5. Keep the original language (Urdu/Hindi/English)." ..
+               fmt .. "\nReturn ONLY the funny text.\n\nText: " .. text
 
     elseif mode == "romantic" then
         return "You are a romantic writer with a poetic heart.\n" ..
-               "Rewrite this text in a deeply romantic and loving style:\n" ..
+               "Rewrite in a deeply romantic and loving style:\n" ..
                "1. Use warm, tender, and affectionate language.\n" ..
                "2. Add romantic metaphors and poetic expressions.\n" ..
                "3. Make it sound heartfelt and emotionally touching.\n" ..
-               "4. Keep the original language and message theme.\n" ..
-               fmt ..
-               "\nReturn ONLY the romantic rewritten text.\n\nText: " .. text
+               "4. Keep the original language and message theme." ..
+               fmt .. "\nReturn ONLY the romantic text.\n\nText: " .. text
 
     elseif mode == "shayari" then
         return "You are a master Urdu poet.\n" ..
                "Create beautiful Urdu Shayari from this text:\n" ..
                "1. Write 2 to 4 lines of authentic Urdu shayari.\n" ..
-               "2. Use classical, literary Urdu vocabulary and expressions.\n" ..
+               "2. Use classical literary Urdu vocabulary.\n" ..
                "3. Add deep emotion, rhythm, and poetic beauty.\n" ..
-               "4. The shayari must relate to the core theme of the input.\n" ..
-               "5. Each line should have good meter and rhyme.\n\n" ..
-               "EXAMPLE STYLE:\n" ..
+               "4. Each line should have good meter and rhyme.\n" ..
+               "5. Theme must relate to the input.\n\n" ..
+               "STYLE EXAMPLE:\n" ..
                "Dard e dil ki dastan kya kahen,\n" ..
-               "Jo bichad gaye unhein yaad karein.\n" ..
-               fmt ..
-               "\nReturn ONLY the shayari.\n\nTheme: " .. text
+               "Jo bichad gaye unhein yaad karein." ..
+               fmt .. "\nReturn ONLY the shayari.\n\nTheme: " .. text
 
     elseif mode == "motivational" then
         return "You are a powerful motivational speaker and life coach.\n" ..
-               "Transform this text into an inspiring motivational message:\n" ..
-               "1. Use empowering, uplifting, and energizing language.\n" ..
+               "Transform into an inspiring motivational message:\n" ..
+               "1. Use empowering, uplifting, energizing language.\n" ..
                "2. Add motivational phrases and calls to action.\n" ..
                "3. Instill confidence, hope, and determination.\n" ..
-               "4. Make it sound like a powerful speech.\n" ..
-               "5. Keep the original language (Urdu/Hindi/English).\n" ..
-               fmt ..
-               "\nReturn ONLY the motivational text.\n\nText: " .. text
+               "4. Make it sound like a powerful impactful speech.\n" ..
+               "5. Keep original language (Urdu/Hindi/English)." ..
+               fmt .. "\nReturn ONLY the motivational text.\n\nText: " .. text
 
     elseif mode == "breaking_news" then
         return "You are a dramatic TV news anchor.\n" ..
-               "Rewrite this as a breaking news announcement:\n" ..
-               "1. Start with BREAKING NEWS: or FLASH: or EXCLUSIVE: or ALERT:.\n" ..
-               "2. Use urgent, impactful, and dramatic language.\n" ..
-               "3. Create a sense of urgency and importance.\n" ..
+               "Rewrite as breaking news announcement:\n" ..
+               "1. Start with BREAKING: or FLASH: or EXCLUSIVE: or ALERT:.\n" ..
+               "2. Use urgent, impactful, dramatic language.\n" ..
+               "3. Create sense of urgency and importance.\n" ..
                "4. Keep it concise but attention-grabbing.\n" ..
-               "5. Use the original language of the input.\n" ..
-               fmt ..
-               "\nReturn ONLY the breaking news text.\n\nText: " .. text
+               "5. Use original language of the input." ..
+               fmt .. "\nReturn ONLY the breaking news text.\n\nText: " .. text
 
     elseif mode == "sms_style" then
-        return "You are an expert at writing short, effective messages.\n" ..
-               "Convert this text into SMS/WhatsApp message style:\n" ..
-               "1. Make it very short and to the point.\n" ..
-               "2. Use casual, friendly everyday language.\n" ..
+        return "You are expert at writing short effective messages.\n" ..
+               "Convert to SMS/WhatsApp message style:\n" ..
+               "1. Very short and to the point.\n" ..
+               "2. Casual friendly everyday language.\n" ..
                "3. Remove unnecessary words and formalities.\n" ..
                "4. Maximum 2-3 sentences.\n" ..
-               "5. Keep the original language.\n" ..
+               "5. Keep original language." ..
                "\nReturn ONLY the short message.\n\nText: " .. text
     end
     return text
 end
 
--- ==================== API CALLERS ====================
+-- ==================== API CALLERS (using HashMap — fixes Gemini/OpenAI/OpenRouter) ====================
+
 local function callGroq(prompt, callback)
     local key   = getStr("groq_key")
     local model = getStr("groq_model","llama-3.3-70b-versatile")
     local url   = "https://api.groq.com/openai/v1/chat/completions"
-    local hdr   = {["Content-Type"]="application/json",["Authorization"]="Bearer "..key}
-    local body  = cjson.encode({
+    -- Use HashMap for reliable headers in all Android versions
+    local hdr = HashMap()
+    hdr.put("Content-Type", "application/json")
+    hdr.put("Authorization", "Bearer " .. key)
+    local body = cjson.encode({
         model    = model,
         messages = {
-            {role="system",content="You are a precise multilingual text assistant. Follow ALL instructions exactly. Return ONLY the processed output text. No explanations, no markdown, no preamble."},
+            {role="system",content="You are a precise multilingual text assistant. Follow ALL instructions exactly. Return ONLY the processed output text. No explanations."},
             {role="user",  content=prompt}
         },
         max_tokens=1024, temperature=0.1
     })
-    Http.post(url, body, hdr, function(status, data)
-        if status == 200 then
-            local ok, d = pcall(cjson.decode, data)
-            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
-                callback(d.choices[1].message.content, nil)
-            else callback(nil, "Groq: Parse error. Please try again.") end
-        elseif status == 401 then callback(nil,"Groq: Invalid API key")
-        elseif status == 429 then callback(nil,"Groq: Rate limit. Please wait.")
-        elseif status == 400 then callback(nil,"Groq: Bad request. Check model name.")
-        else callback(nil,"Groq HTTP error: "..tostring(status)) end
+    local ok, err = pcall(function()
+        Http.post(url, body, hdr, function(status, data)
+            if status == 200 then
+                local ok2, d = pcall(cjson.decode, data)
+                if ok2 and d and d.choices and d.choices[1] and d.choices[1].message then
+                    callback(d.choices[1].message.content, nil)
+                else callback(nil,"Groq: Response parse error") end
+            elseif status == 401 then callback(nil,"Groq: Invalid API key")
+            elseif status == 429 then callback(nil,"Groq: Rate limit. Please wait.")
+            elseif status == 400 then callback(nil,"Groq: Bad request. Check model name.")
+            else callback(nil,"Groq HTTP error: "..tostring(status)) end
+        end)
     end)
+    if not ok then callback(nil,"Groq: Request failed - "..tostring(err)) end
 end
 
 local function callGemini(prompt, callback)
     local key   = getStr("gem_key")
     local model = getStr("gem_model","gemini-2.0-flash")
+    -- Key goes in URL for Gemini, header only needs Content-Type
     local url   = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. key
-    local hdr   = {["Content-Type"]="application/json"}
-    local body  = cjson.encode({
+    local hdr = HashMap()
+    hdr.put("Content-Type", "application/json")
+    local body = cjson.encode({
         contents         = {{parts={{text=prompt}}}},
         generationConfig = {temperature=0.1, maxOutputTokens=1024}
     })
-    Http.post(url, body, hdr, function(status, data)
-        if status == 200 then
-            local ok, d = pcall(cjson.decode, data)
-            if ok and d and d.candidates and d.candidates[1] then
-                local cand = d.candidates[1]
-                local txt  = cand.content and cand.content.parts and
-                             cand.content.parts[1] and cand.content.parts[1].text
-                if txt then
-                    callback(txt, nil)
+    local ok, err = pcall(function()
+        Http.post(url, body, hdr, function(status, data)
+            if status == 200 then
+                local ok2, d = pcall(cjson.decode, data)
+                if ok2 and d and d.candidates and d.candidates[1] then
+                    local cand = d.candidates[1]
+                    local txt  = cand.content and cand.content.parts and
+                                 cand.content.parts[1] and cand.content.parts[1].text
+                    if txt then
+                        callback(txt, nil)
+                    else
+                        local reason = cand.finishReason or "UNKNOWN"
+                        callback(nil,"Gemini: No text in response. Reason: "..reason)
+                    end
                 else
-                    local reason = (cand.finishReason or "unknown")
-                    callback(nil,"Gemini: No text. Reason: "..reason)
+                    -- Try to extract error message
+                    local ok3, d2 = pcall(cjson.decode, data)
+                    if ok3 and d2 and d2.error then
+                        callback(nil,"Gemini error: "..tostring(d2.error.message or d2.error))
+                    else
+                        callback(nil,"Gemini: Parse error. Try again.")
+                    end
                 end
-            else
-                local ok2, d2 = pcall(cjson.decode, data)
-                if ok2 and d2 and d2.error then
-                    callback(nil,"Gemini: "..tostring(d2.error.message or d2.error))
-                else
-                    callback(nil,"Gemini: Parse error. Try again.")
-                end
-            end
-        elseif status == 400 then callback(nil,"Gemini: Bad request or model unavailable")
-        elseif status == 403 then callback(nil,"Gemini: Invalid API key")
-        elseif status == 429 then callback(nil,"Gemini: Rate limit. Please wait.")
-        else callback(nil,"Gemini HTTP error: "..tostring(status)) end
+            elseif status == 400 then callback(nil,"Gemini: Bad request or model unavailable")
+            elseif status == 403 then callback(nil,"Gemini: Invalid API key. Check key.")
+            elseif status == 429 then callback(nil,"Gemini: Rate limit. Please wait.")
+            elseif status == 404 then callback(nil,"Gemini: Model not found: "..model)
+            else callback(nil,"Gemini HTTP error: "..tostring(status)) end
+        end)
     end)
+    if not ok then callback(nil,"Gemini: Request failed - "..tostring(err)) end
 end
 
 local function callOpenAI(prompt, callback)
     local key   = getStr("oai_key")
     local model = getStr("oai_model","gpt-4o-mini")
     local url   = "https://api.openai.com/v1/chat/completions"
-    local hdr   = {["Content-Type"]="application/json",["Authorization"]="Bearer "..key}
-    local body  = cjson.encode({
+    local hdr = HashMap()
+    hdr.put("Content-Type", "application/json")
+    hdr.put("Authorization", "Bearer " .. key)
+    local body = cjson.encode({
         model    = model,
         messages = {
-            {role="system",content="You are a precise multilingual text assistant. Follow all instructions exactly. Return only the processed output text."},
+            {role="system",content="You are a precise multilingual text assistant. Follow ALL instructions exactly. Return ONLY the processed output text."},
             {role="user",  content=prompt}
         },
         max_tokens=1024, temperature=0.1
     })
-    Http.post(url, body, hdr, function(status, data)
-        if status == 200 then
-            local ok, d = pcall(cjson.decode, data)
-            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
-                callback(d.choices[1].message.content, nil)
-            else callback(nil,"OpenAI: Parse error. Try again.") end
-        elseif status == 401 then callback(nil,"OpenAI: Invalid API key")
-        elseif status == 429 then callback(nil,"OpenAI: Quota exceeded or rate limit")
-        elseif status == 404 then callback(nil,"OpenAI: Model not found. Change model.")
-        else callback(nil,"OpenAI HTTP error: "..tostring(status)) end
+    local ok, err = pcall(function()
+        Http.post(url, body, hdr, function(status, data)
+            if status == 200 then
+                local ok2, d = pcall(cjson.decode, data)
+                if ok2 and d and d.choices and d.choices[1] and d.choices[1].message then
+                    callback(d.choices[1].message.content, nil)
+                else callback(nil,"OpenAI: Response parse error") end
+            elseif status == 401 then callback(nil,"OpenAI: Invalid API key. Check key.")
+            elseif status == 429 then callback(nil,"OpenAI: Quota exceeded or rate limit.")
+            elseif status == 404 then callback(nil,"OpenAI: Model not found: "..model)
+            elseif status == 400 then callback(nil,"OpenAI: Bad request. Check model name.")
+            else callback(nil,"OpenAI HTTP error: "..tostring(status)) end
+        end)
     end)
+    if not ok then callback(nil,"OpenAI: Request failed - "..tostring(err)) end
 end
 
 local function callOpenRouter(prompt, callback)
     local key   = getStr("or_key")
     local model = getStr("or_model","google/gemini-2.0-flash-001")
     local url   = "https://openrouter.ai/api/v1/chat/completions"
-    local hdr   = {
-        ["Content-Type"]  = "application/json",
-        ["Authorization"] = "Bearer "..key,
-        ["HTTP-Referer"]  = "https://github.com/CSRExpert",
-        ["X-Title"]       = "CSR MultiTyper"
-    }
+    local hdr = HashMap()
+    hdr.put("Content-Type",  "application/json")
+    hdr.put("Authorization", "Bearer " .. key)
+    hdr.put("HTTP-Referer",  "https://github.com/CSRExpert")
+    hdr.put("X-Title",       "CSR MultiTyper")
     local body = cjson.encode({
         model    = model,
         messages = {
-            {role="system",content="You are a precise multilingual text assistant. Follow all instructions exactly. Return only the processed output text."},
+            {role="system",content="You are a precise multilingual text assistant. Follow ALL instructions exactly. Return ONLY the processed output text."},
             {role="user",  content=prompt}
         },
         max_tokens=1024, temperature=0.1
     })
-    Http.post(url, body, hdr, function(status, data)
-        if status == 200 then
-            local ok, d = pcall(cjson.decode, data)
-            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
-                callback(d.choices[1].message.content, nil)
-            else callback(nil,"OpenRouter: Parse error. Try again.") end
-        elseif status == 401 then callback(nil,"OpenRouter: Invalid API key")
-        elseif status == 402 then callback(nil,"OpenRouter: Insufficient credits")
-        elseif status == 429 then callback(nil,"OpenRouter: Rate limit. Please wait.")
-        else callback(nil,"OpenRouter HTTP error: "..tostring(status)) end
+    local ok, err = pcall(function()
+        Http.post(url, body, hdr, function(status, data)
+            if status == 200 then
+                local ok2, d = pcall(cjson.decode, data)
+                if ok2 and d and d.choices and d.choices[1] and d.choices[1].message then
+                    callback(d.choices[1].message.content, nil)
+                else callback(nil,"OpenRouter: Response parse error") end
+            elseif status == 401 then callback(nil,"OpenRouter: Invalid API key. Check key.")
+            elseif status == 402 then callback(nil,"OpenRouter: Insufficient credits.")
+            elseif status == 429 then callback(nil,"OpenRouter: Rate limit. Please wait.")
+            else callback(nil,"OpenRouter HTTP error: "..tostring(status)) end
+        end)
     end)
+    if not ok then callback(nil,"OpenRouter: Request failed - "..tostring(err)) end
 end
 
 -- ==================== UNIFIED PROCESSOR ====================
@@ -707,7 +692,7 @@ local function processWithAI(rawText, callback)
     local cfg        = PROV_CFG[prov]
 
     if not cfg or getStr(cfg.kp) == "" then
-        service.speak("No API key found. Open AI Engine Settings and add your "..prov.." key.")
+        service.speak("No API key for "..prov..". Open AI Engine Settings and save your key.")
         callback(rawText)
         return
     end
@@ -722,7 +707,7 @@ local function processWithAI(rawText, callback)
             return
         end
         local finalText = result or rawText
-        -- Emoji added by Lua — works with ALL providers, ALL modes
+        -- Emoji added by Lua — 100% works with ALL 4 providers
         if withEmoji then
             finalText = addSmartEmoji(finalText)
         end
@@ -751,12 +736,12 @@ local showMainDialog
 -- ==================== VOICE RECOGNITION ====================
 local function startVoiceRecognition()
     if not hasActiveApiKey() then
-        service.speak("API key required. Open AI Engine Settings and add your "..getStr("active_provider","Groq AI").." API key.")
+        service.speak("API key required. Open AI Engine Settings and add your "..getStr("active_provider","Groq AI").." key.")
         return
     end
     local et = service.getEditText()
     if not et then
-        service.speak("Please tap on a text field first, then use the plugin.")
+        service.speak("Please tap on a text field first, then activate the plugin.")
         return
     end
     local langCode = getStr("selectedLangCode","ur-PK")
@@ -778,12 +763,12 @@ local function startVoiceRecognition()
                     service.speak(final)
                 end)
             else
-                service.asyncSpeak("No speech detected. Please try again.")
+                service.asyncSpeak("No speech detected. Try again.")
             end
             sr.destroy()
         end,
         onError = function(errCode)
-            service.asyncSpeak("Could not understand speech. Please try again.")
+            service.asyncSpeak("Could not understand. Try again.")
             sr.destroy()
         end
     })
@@ -826,14 +811,14 @@ local function showModeDialog(onBack)
         local ns = not getBool("emojiEnabled"); saveBool("emojiEnabled",ns)
         emojiBtn.setText(ns and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
         emojiBtn.setBackgroundColor(ns and 0xFF1B5E20 or 0xFF455A64)
-        service.speak("Emoji " .. (ns and "enabled. Works with all providers." or "disabled."))
+        service.speak("Emoji " .. (ns and "enabled — works with all providers" or "disabled"))
     end)
 
     -- Emoji Style Spinner
-    local eLbl = TextView(service)
-    eLbl.setText("Emoji Style:"); eLbl.setTextSize(12); eLbl.setTextColor(0xFF888888)
-    local elp = LinearLayout.LayoutParams(-1,-2); elp.setMargins(0,8,0,4); eLbl.setLayoutParams(elp)
-    ml.addView(eLbl)
+    local esLbl = TextView(service)
+    esLbl.setText("Emoji Style:"); esLbl.setTextSize(12); esLbl.setTextColor(0xFF888888)
+    local eslp = LinearLayout.LayoutParams(-1,-2); eslp.setMargins(0,8,0,4); esLbl.setLayoutParams(eslp)
+    ml.addView(esLbl)
 
     local emojiStyleSpin = Spinner(service)
     local esa = ArrayAdapter(service, android.R.layout.simple_spinner_item, EMOJI_STYLES)
@@ -849,17 +834,14 @@ local function showModeDialog(onBack)
     ml.addView(emojiStyleSpin)
     emojiStyleSpin.onItemSelected = function(parent, view, pos, id)
         local chosen = EMOJI_STYLE_KEYS[pos+1]
-        if chosen then
-            saveStr("emojiStyle", chosen)
-            service.speak("Emoji style: " .. EMOJI_STYLES[pos+1])
-        end
+        if chosen then saveStr("emojiStyle", chosen) end
     end
 
-    -- Output Format Spinner (NEW)
-    local fLbl = TextView(service)
-    fLbl.setText("Output Format:"); fLbl.setTextSize(12); fLbl.setTextColor(0xFF888888)
-    local flp = LinearLayout.LayoutParams(-1,-2); flp.setMargins(0,0,0,4); fLbl.setLayoutParams(flp)
-    ml.addView(fLbl)
+    -- Output Format Spinner
+    local fmtLbl = TextView(service)
+    fmtLbl.setText("Output Format:"); fmtLbl.setTextSize(12); fmtLbl.setTextColor(0xFF888888)
+    local fmlp = LinearLayout.LayoutParams(-1,-2); fmlp.setMargins(0,0,0,4); fmtLbl.setLayoutParams(fmlp)
+    ml.addView(fmtLbl)
 
     local formatSpin = Spinner(service)
     local fsa = ArrayAdapter(service, android.R.layout.simple_spinner_item, FORMAT_STYLES)
@@ -874,22 +856,21 @@ local function showModeDialog(onBack)
     local fssp = LinearLayout.LayoutParams(-1,-2); fssp.setMargins(0,0,0,5); formatSpin.setLayoutParams(fssp)
     ml.addView(formatSpin)
 
-    -- Save Format button
     local saveFmtBtn = Button(service)
     saveFmtBtn.setText("Save Format Selection"); saveFmtBtn.setTextSize(12)
     saveFmtBtn.setBackgroundColor(0xFF1565C0); saveFmtBtn.setTextColor(0xFFFFFFFF)
-    local sfbp = LinearLayout.LayoutParams(-1,-2); sfbp.setMargins(0,0,0,18); saveFmtBtn.setLayoutParams(sfbp)
+    local sfp = LinearLayout.LayoutParams(-1,-2); sfp.setMargins(0,0,0,18); saveFmtBtn.setLayoutParams(sfp)
     ml.addView(saveFmtBtn)
     saveFmtBtn.setOnClickListener(function()
         local pos = formatSpin.getSelectedItemPosition()
         local chosen = FORMAT_KEYS[pos+1]
         if chosen then
             saveStr("outputFormat", chosen)
-            service.speak("Output format saved: " .. FORMAT_STYLES[pos+1])
+            service.speak("Output format: " .. FORMAT_STYLES[pos+1])
         end
     end)
 
-    -- Modes header
+    -- Mode buttons header
     local lbl = TextView(service)
     lbl.setText("Select AI Processing Mode:")
     lbl.setTextSize(14); lbl.setTextColor(0xFFCCCCCC); lbl.setPadding(0,0,0,10)
@@ -901,11 +882,10 @@ local function showModeDialog(onBack)
         local modeName = MODES[i]
         local mKey     = MODE_KEYS[i]
         local isActive = (curMode == mKey)
-        local mColor   = MODE_COLORS[i]
 
         local btn = Button(service)
         btn.setText((isActive and ">> " or "   ") .. modeName .. (isActive and " <<" or ""))
-        btn.setBackgroundColor(isActive and mColor or 0xFF263238)
+        btn.setBackgroundColor(isActive and MODE_COLORS[i] or 0xFF263238)
         btn.setTextColor(0xFFFFFFFF); btn.setTextSize(14)
         local bp = LinearLayout.LayoutParams(-1,-2); bp.setMargins(0,0,0,3); btn.setLayoutParams(bp)
         ml.addView(btn)
@@ -919,7 +899,7 @@ local function showModeDialog(onBack)
         local ck = mKey; local cn = modeName
         btn.setOnClickListener(function()
             saveStr("active_mode", ck)
-            service.speak("Mode set to: " .. cn)
+            service.speak("Mode: " .. cn)
             dlg.dismiss()
             if ck == "translation" then
                 local tDlg = LuaDialog(service)
@@ -1066,12 +1046,12 @@ local function showAIEngineDialog(onBack)
         loadUI(pv); service.speak(pv .. " settings loaded")
     end)
 
-    -- FIXED: Test button uses mainHandler.post + separate Gemini handling
+    -- FIXED TEST: mainHandler.post + HashMap + Gemini 2-arg
     testBtn.setOnClickListener(function()
         local pv  = PROVIDERS[provSpinner.getSelectedItemPosition()+1]
         local key = keyInput.getText().toString()
         if key == "" then service.speak("Please enter API key first."); return end
-        testBtn.setText("Testing..."); testBtn.setEnabled(false)
+        testBtn.setText("Testing... Please wait"); testBtn.setEnabled(false)
 
         local function onResult(status, data)
             mainHandler.post(Runnable({run=function()
@@ -1081,22 +1061,29 @@ local function showAIEngineDialog(onBack)
                 elseif status == 401 or status == 403 then
                     service.speak("FAILED! Invalid API key. Please check and re-enter.")
                 elseif not status or status == 0 then
-                    service.speak("No response from server. Check internet connection.")
+                    service.speak("No response. Check your internet connection.")
                 else
-                    service.speak("Error " .. tostring(status) .. ". Check internet or API key.")
+                    service.speak("Error " .. tostring(status) .. ". Check internet or try again.")
                 end
             end}))
         end
 
-        -- Gemini uses 2-arg (key in URL), others use 3-arg with auth header
+        -- Gemini: key in URL, no auth header (2-arg Http.get)
+        -- Others: auth header needed (3-arg with HashMap)
         if pv == "Groq AI" then
-            Http.get("https://api.groq.com/openai/v1/models", {["Authorization"]="Bearer "..key}, onResult)
+            local th = HashMap()
+            th.put("Authorization","Bearer "..key)
+            Http.get("https://api.groq.com/openai/v1/models", th, onResult)
         elseif pv == "Google Gemini" then
             Http.get("https://generativelanguage.googleapis.com/v1beta/models?key="..key, onResult)
         elseif pv == "OpenAI" then
-            Http.get("https://api.openai.com/v1/models", {["Authorization"]="Bearer "..key}, onResult)
+            local th = HashMap()
+            th.put("Authorization","Bearer "..key)
+            Http.get("https://api.openai.com/v1/models", th, onResult)
         elseif pv == "OpenRouter" then
-            Http.get("https://openrouter.ai/api/v1/auth/key", {["Authorization"]="Bearer "..key}, onResult)
+            local th = HashMap()
+            th.put("Authorization","Bearer "..key)
+            Http.get("https://openrouter.ai/api/v1/auth/key", th, onResult)
         end
     end)
 
@@ -1138,7 +1125,7 @@ local function showDictionaryAddDialog()
                 local c = correctWord.getText().toString():gsub("^%s+",""):gsub("%s+$","")
                 if w ~= "" and c ~= "" then
                     changeTable[w] = c; saveDictionary()
-                    service.speak("Added. " .. w .. " will be replaced with " .. c)
+                    service.speak("Added. "..w.." will be replaced with "..c)
                     dlg.dismiss()
                 else service.speak("Please fill both fields.") end
             end};
@@ -1149,7 +1136,7 @@ local function showDictionaryAddDialog()
 end
 
 local function showDictionaryListDialog()
-    if next(changeTable) == nil then service.speak("Dictionary is empty. Add some words first."); return end
+    if next(changeTable) == nil then service.speak("Dictionary is empty. Add words first."); return end
     local items = {}
     for w, c in pairs(changeTable) do items[#items+1] = w .. " >> " .. c end
     table.sort(items)
@@ -1181,13 +1168,11 @@ local function showAboutDialog(onBack)
 
     local dlg = LuaDialog(service)
     dlg.setTitle("About CSR MultiTyper")
-
     local layout = {
         LinearLayout; orientation="vertical"; padding="20dp";
         {TextView; text="CSR MultiTyper"; textSize="26sp"; textColor="#2196F3"; gravity="center"; layout_marginBottom="2dp"};
         {TextView; text="Version " .. currentVersion; textSize="14sp"; textColor="#757575"; gravity="center"; layout_marginBottom="4dp"};
         {TextView; text="Developer: Aftab Ali  |  CSR Expert"; textSize="13sp"; textColor="#9E9E9E"; gravity="center"; layout_marginBottom="20dp"};
-        -- Current config
         {TextView; text="Current Configuration"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text="Provider       : " .. curProv ..
@@ -1197,40 +1182,38 @@ local function showAboutDialog(onBack)
                  "\nOutput Format: " .. getStr("outputFormat","normal") ..
                  "\nTranslate     : " .. getStr("targetLang","---");
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        -- What's new
-        {TextView; text="What's New in v3.2"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
+        {TextView; text="What's New in v4.0"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {TextView;
             text=
-                "NEW in v3.2:\n" ..
-                "* 11 AI Modes (8 new since v3.1):\n" ..
-                "  Auto Fix, Conversion, Intelligent Writer,\n" ..
-                "  Professional, Translation, Funny,\n" ..
-                "  Romantic, Shayari, Motivational,\n" ..
-                "  Breaking News, SMS Style\n\n" ..
-                "* Output Format Spinner (NEW):\n" ..
-                "  Normal, Short and Crisp, Detailed,\n" ..
-                "  Bullet Points, Numbered Steps, Paragraph\n\n" ..
-                "* Emoji in ALL modes including Translation\n\n" ..
-                "* Emoji Style Spinner (6 styles):\n" ..
-                "  Smart Match, Expressive, Hearts,\n" ..
-                "  Stars, Nature, Fun Pack\n\n" ..
-                "* Fixed API Key Test for ALL 4 providers\n" ..
-                "  (mainHandler.post fix applied)\n\n" ..
-                "* Fixed Auto Update Engine\n" ..
-                "  (GitHub-based, atomic file update)\n\n" ..
-                "* Latest AI Models added:\n" ..
-                "  Groq: deepseek-r1, llama-3.2-90b\n" ..
-                "  Gemini: 2.5-flash-preview, 2.0-flash\n" ..
-                "  OpenAI: gpt-4o, o1-mini\n" ..
-                "  OpenRouter: claude-3.5-sonnet, deepseek-r1\n\n" ..
-                "* 25 Voice Languages + 20 Translation Languages\n\n" ..
-                "* Improved prompts for all modes\n\n" ..
-                "* Back navigation fixed in all dialogs\n\n" ..
-                "* Custom Dictionary (file-based)\n\n" ..
-                "* API Required Lock\n\n" ..
-                "* About section links updated";
+                "v3.x Features (carried forward):\n" ..
+                "* 4 AI Providers: Groq AI, Google Gemini,\n" ..
+                "  OpenAI, OpenRouter\n" ..
+                "* Smart Emoji Engine (Lua-side, all providers)\n" ..
+                "* API Required Lock\n" ..
+                "* Custom File-based Dictionary\n" ..
+                "* 25 Voice Languages\n" ..
+                "* 20 Translation Languages\n\n" ..
+                "v4.0 New Features:\n" ..
+                "* FIXED: Gemini, OpenAI, OpenRouter API\n" ..
+                "  (switched to HashMap headers)\n" ..
+                "* FIXED: API Key Test for all 4 providers\n" ..
+                "* FIXED: Emoji works with ALL providers\n" ..
+                "* 11 AI Modes (4 new added):\n" ..
+                "  Funny, Romantic, Shayari, Motivational,\n" ..
+                "  Breaking News, SMS Style\n" ..
+                "* Output Format Spinner:\n" ..
+                "  Normal, Short, Detailed, Bullets,\n" ..
+                "  Numbered Steps, Paragraph Style\n" ..
+                "* Emoji Style Spinner (6 styles)\n" ..
+                "* Auto Update Engine (GitHub-based)\n" ..
+                "  Atomic update + auto plugin reload\n" ..
+                "* HTTP timeout settings (60 seconds)\n" ..
+                "* Latest AI models for all providers\n" ..
+                "* Improved prompts for all 11 modes\n" ..
+                "* Back navigation fixed in all dialogs\n" ..
+                "* PREFS_NAME fixed (V4 - keeps saved keys)";
             textSize="13sp"; textColor="#CCCCCC"; layout_marginBottom="20dp"};
-        -- Support
+        -- SUPPORT SECTION WITH ALL LINKS
         {TextView; text="Support and Contact"; textSize="14sp"; textColor="#FF9800"; layout_marginBottom="8dp"};
         {Button; text="YouTube: CSR Expert Channel"; backgroundColor="#C62828"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="8dp";
             onClick=function()
@@ -1242,7 +1225,7 @@ local function showAboutDialog(onBack)
                 dlg.dismiss()
                 service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/923425037026")))
             end};
-        {Button; text="Check for Updates"; backgroundColor="#1565C0"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="15dp";
+        {Button; text="Check for New Updates"; backgroundColor="#1565C0"; textColor="#FFFFFF"; layout_width="fill"; layout_marginBottom="15dp";
             onClick=function()
                 dlg.dismiss()
                 checkForUpdates(true)
@@ -1297,7 +1280,7 @@ end
 -- ==================== INIT ====================
 loadDictionary()
 
--- Auto update check after 3 seconds (no Thread needed - Http.get is async)
+-- Auto update check after 3 seconds
 mainHandler.postDelayed(Runnable({run=function()
     checkForUpdates(false)
 end}), 3000)
