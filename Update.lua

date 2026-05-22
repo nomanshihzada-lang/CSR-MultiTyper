@@ -14,10 +14,11 @@ import "android.os.*"
 import "java.io.*"
 import "java.net.*"
 
--- CSR MultiTyper v4.0 | Groq AI Voice Typing Plugin
--- Developer: Naman Khan
+-- CSR MultiTyper v4.1 | Groq AI Voice Typing Plugin
+-- Developer: Aftab Ali (CSR Expert)
+-- Upgraded by: Noman Khan
 
-local currentVersion = "4.0"
+local currentVersion = "4.1"
 local PREFS_NAME     = "CSRMultiTyper_V40"
 local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 local prefsEd        = prefs.edit()
@@ -149,6 +150,15 @@ local function trim(s)
     return s and tostring(s):gsub("^%s*(.-)%s*$", "%1") or ""
 end
 
+local function versionGreater(latest, current)
+    local lMaj, lMin = latest:match("^(%d+)%.?(%d*)")
+    local cMaj, cMin = current:match("^(%d+)%.?(%d*)")
+    lMaj = tonumber(lMaj) or 0; lMin = tonumber(lMin) or 0
+    cMaj = tonumber(cMaj) or 0; cMin = tonumber(cMin) or 0
+    if lMaj ~= cMaj then return lMaj > cMaj end
+    return lMin > cMin
+end
+
 local function performUpdate(code, ver)
     if not code or trim(code) == "" then
         service.speak("Update failed: empty file")
@@ -203,7 +213,7 @@ local function checkForUpdates(manual)
             return
         end
         local latest = trim(resp)
-        if latest == "" or latest == currentVersion then
+        if latest == "" or not versionGreater(latest, currentVersion) then
             if manual then service.speak("You have the latest version " .. currentVersion) end
             return
         end
@@ -291,11 +301,11 @@ local FORMAT_STYLES = {"Normal Text","Short and Crisp","Detailed","Bullet Points
 local FORMAT_KEYS   = {"normal","short","detailed","bullets","numbered","paragraph"}
 
 local function getFormatInstruction(fmt)
-    if fmt == "short"     then return "\nIMPORTANT: Keep output very short. Max 2-3 sentences."
-    elseif fmt == "detailed"  then return "\nIMPORTANT: Give a detailed elaborate response."
-    elseif fmt == "bullets"   then return "\nIMPORTANT: Format as bullet points using - symbol."
-    elseif fmt == "numbered"  then return "\nIMPORTANT: Format as numbered steps 1. 2. 3."
-    elseif fmt == "paragraph" then return "\nIMPORTANT: Format as clean structured paragraphs." end
+    if fmt == "short"     then return "\nKEEP OUTPUT VERY SHORT. Max 2-3 sentences only."
+    elseif fmt == "detailed"  then return "\nGive a detailed elaborate response."
+    elseif fmt == "bullets"   then return "\nFormat as bullet points using - symbol."
+    elseif fmt == "numbered"  then return "\nFormat as numbered steps 1. 2. 3."
+    elseif fmt == "paragraph" then return "\nFormat as clean structured paragraphs." end
     return ""
 end
 
@@ -481,43 +491,73 @@ end
 -- ==================== CLEAN RESPONSE ====================
 local function cleanResponse(txt)
     if not txt then return "" end
+    -- Remove leading/trailing whitespace
     txt = txt:gsub("^[\n\r%s]+", ""):gsub("[\n\r%s]+$", "")
+    -- Remove markdown bold/italic
     txt = txt:gsub("%*%*(.-)%*%*", "%1")
     txt = txt:gsub("%*(.-)%*",     "%1")
     txt = txt:gsub("__(.-)__",     "%1")
     txt = txt:gsub("_(.-)_",       "%1")
+    -- Remove code blocks
     txt = txt:gsub("```.-```", "")
     txt = txt:gsub("`(.-)`",   "%1")
+    -- Remove common AI preamble phrases (English)
+    txt = txt:gsub("^[Hh]ere is the [^:]+:%s*", "")
+    txt = txt:gsub("^[Hh]ere's the [^:]+:%s*", "")
+    txt = txt:gsub("^[Ss]ure[,!]?%s*[Hh]ere[^:]*:%s*", "")
+    txt = txt:gsub("^[Cc]ertainly[,!]?%s*[Hh]ere[^:]*:%s*", "")
+    txt = txt:gsub("^[Oo]f course[,!]?%s*[Hh]ere[^:]*:%s*", "")
+    txt = txt:gsub("^[Aa]bsolutely[,!]?%s*[Hh]ere[^:]*:%s*", "")
+    -- Remove common AI preamble (Urdu/Hindi)
+    txt = txt:gsub("^[Bb]ilkul[,!]?%s*", "")
+    txt = txt:gsub("^[Zz]aroor[,!]?%s*", "")
+    txt = txt:gsub("^[Hh]a[nN][,!]?%s*[Yy]eh raha[^:]*:%s*", "")
+    -- Remove trailing notes/disclaimers
+    txt = txt:gsub("%s*%(Note:[^%)]*%)%s*$", "")
+    txt = txt:gsub("%s*%[Note:[^%]]*%]%s*$", "")
+    txt = txt:gsub("%s*Note:%s*[^\n]*$", "")
+    txt = txt:gsub("%s*[Pp][Ss][%.:]?%s*[^\n]*$", "")
+    -- Final trim
     txt = txt:gsub("^[\n\r%s]+", ""):gsub("[\n\r%s]+$", "")
     return txt
 end
+
+-- ==================== STRICT SYSTEM PROMPT ====================
+local SYSTEM_PROMPT = "You are a precise multilingual text transformation assistant.\n" ..
+"CRITICAL RULES - FOLLOW EXACTLY:\n" ..
+"1. Return ONLY the transformed/corrected text.\n" ..
+"2. NO preamble. Do NOT start with: Sure, Here is, Certainly, Bilkul, Zaroor, Han yeh raha, or ANY introduction.\n" ..
+"3. NO explanations, NO notes, NO disclaimers at end.\n" ..
+"4. NO markdown: no **, no *, no __, no backticks.\n" ..
+"5. NO extra commentary. Output = transformed text ONLY.\n" ..
+"6. If input is short, output must also be concise. Do NOT add padding or extra sentences."
 
 -- ==================== PROMPT ENGINE (11 modes) ====================
 local function getModePrompt(text, mode, targetLang)
     local fmt = getFormatInstruction(getStr("outputFormat","normal"))
     if mode == "auto_fix" then
-        return "You are a text correction assistant.\n1. Fix ALL spelling mistakes in Urdu and English.\n2. Add proper punctuation.\n3. Fix grammar keeping original meaning.\n4. Keep original language. Do NOT translate.\n5. Return ONLY the corrected text, nothing else." .. fmt .. "\n\nText: " .. text
+        return "Fix ALL spelling mistakes. Add proper punctuation. Fix grammar. Keep original language. Do NOT translate. Do NOT add extra sentences.\nText: " .. text .. fmt
     elseif mode == "conversion" then
-        return "You are a Mixed Script converter.\nSTRICT RULES:\n1. Keep sentence structure in original Urdu/Hindi.\n2. Find: names, cities, countries, brands, tech terms, English loanwords.\n3. Convert ONLY those to English (Latin) letters.\n4. ALL other Urdu/Hindi words stay in Arabic script.\n5. Do NOT translate.\n6. Return ONLY the converted text.\nEXAMPLES:\nIn: mera nam aftab hai pakistan main\nOut: mera nam Aftab hai Pakistan main\n" .. fmt .. "\nConvert:\n" .. text
+        return "Mixed Script conversion ONLY.\nKeep Urdu/Hindi sentence structure.\nConvert names, cities, countries, brands, tech terms to English (Latin) letters ONLY.\nAll other words stay in Arabic script.\nDo NOT translate.\nConvert:\n" .. text .. fmt
     elseif mode == "intelligent" then
-        return "You are an AI Writing Enhancement Assistant.\n1. Make text more articulate, natural, engaging.\n2. Correct ALL grammar errors.\n3. Upgrade vocabulary precisely.\n4. Improve sentence flow.\n5. Keep original language.\n6. Return ONLY enhanced text." .. fmt .. "\n\nOriginal: " .. text
+        return "Enhance this text: make it more natural, fix grammar, improve vocabulary. Keep original language. Return enhanced text only.\n\n" .. text .. fmt
     elseif mode == "professional" then
-        return "You are a Professional Business Writing Expert.\n1. Use formal, polished, sophisticated language.\n2. Suitable for business or official communication.\n3. Impeccable grammar, courteous tone.\n4. Keep original language and core message.\n5. Return ONLY rewritten text.\nEXAMPLES:\nIn: main kal nai aa sakta\nOut: Mujhe afsos hai main kal hazir nahi ho sakuunga.\nIn: yeh kaam theek nahi hua\nOut: Is kaam ke nataaij toqquat ke mutabiq nahi hain.\n" .. fmt .. "\n\nText: " .. text
+        return "Rewrite in formal professional style. Keep original language and core meaning. Return rewritten text only.\n\n" .. text .. fmt
     elseif mode == "translation" then
         local lang = targetLang or "English"
-        return "You are a professional translator.\n1. Fix spelling mistakes in input first.\n2. Translate accurately into " .. lang .. ".\n3. Natural sound, preserve meaning.\n4. Preserve emotional tone.\n5. Return ONLY the translated text in " .. lang .. ", nothing else." .. fmt .. "\n\nText: " .. text
+        return "Translate accurately into " .. lang .. ". Keep emotional tone. Return ONLY the translated text in " .. lang .. ".\n\nText: " .. text .. fmt
     elseif mode == "funny" then
-        return "You are a talented comedy writer.\nTransform into something hilarious:\n1. Clever wordplay, witty observations, gentle exaggeration.\n2. Comic timing and funny comparisons.\n3. Light-hearted, clean, fun for everyone.\n4. Keep original topic but make it laugh-worthy.\n5. Keep original language.\n6. Return ONLY the funny text." .. fmt .. "\n\nText: " .. text
+        return "Rewrite in funny witty comedy style. Keep original topic and language. Return funny text only.\n\n" .. text .. fmt
     elseif mode == "romantic" then
-        return "You are a romantic writer with a poetic heart.\nRewrite in deeply romantic loving style:\n1. Warm, tender, affectionate language.\n2. Romantic metaphors and poetic expressions.\n3. Heartfelt and emotionally touching.\n4. Keep original language and theme.\n5. Return ONLY the romantic text." .. fmt .. "\n\nText: " .. text
+        return "Rewrite in warm romantic poetic style. Keep original language. Return romantic text only.\n\n" .. text .. fmt
     elseif mode == "shayari" then
-        return "You are a master Urdu poet.\nCreate beautiful Urdu Shayari:\n1. Write 2 to 4 lines of authentic shayari.\n2. Classical literary Urdu vocabulary.\n3. Deep emotion, rhythm, poetic beauty.\n4. Good meter and rhyme.\n5. Theme must match the input.\n6. Return ONLY the shayari lines, nothing else.\nSTYLE EXAMPLE:\nDard e dil ki dastan kya kahen,\nJo bichad gaye unhein yaad karein.\n" .. fmt .. "\n\nTheme: " .. text
+        return "Write 2-4 lines of beautiful Urdu Shayari on this theme. Classical Urdu only. Return shayari lines only.\n\nTheme: " .. text .. fmt
     elseif mode == "motivational" then
-        return "You are a powerful motivational speaker.\nTransform into inspiring motivational message:\n1. Empowering, uplifting, energizing language.\n2. Motivational phrases and calls to action.\n3. Instill confidence, hope, determination.\n4. Sound like a powerful speech.\n5. Keep original language.\n6. Return ONLY the motivational text." .. fmt .. "\n\nText: " .. text
+        return "Rewrite as powerful motivational message. Keep original language. Return motivational text only.\n\n" .. text .. fmt
     elseif mode == "breaking_news" then
-        return "You are a dramatic TV news anchor.\nRewrite as breaking news:\n1. Start with BREAKING: or FLASH: or ALERT:.\n2. Urgent, impactful, dramatic language.\n3. Sense of urgency and importance.\n4. Concise but attention-grabbing.\n5. Use original language.\n6. Return ONLY the breaking news text." .. fmt .. "\n\nText: " .. text
+        return "Rewrite as breaking news. Start with BREAKING: or ALERT:. Urgent dramatic style. Keep original language. Return news text only.\n\n" .. text .. fmt
     elseif mode == "sms_style" then
-        return "You are expert at writing short effective messages.\nConvert to SMS/WhatsApp style:\n1. Very short and to the point.\n2. Casual friendly language.\n3. Remove unnecessary formalities.\n4. Maximum 2-3 sentences.\n5. Keep original language.\n6. Return ONLY the short message." .. fmt .. "\n\nText: " .. text
+        return "Convert to short SMS/WhatsApp style. Max 2 sentences. Casual friendly tone. Keep original language. Return short message only.\n\n" .. text .. fmt
     end
     return text
 end
@@ -535,10 +575,10 @@ local function callGroq(prompt, callback)
     local ok0, body = pcall(cjson.encode, {
         model    = model,
         messages = {
-            {role="system", content="You are a precise multilingual text assistant. Follow all instructions exactly. Return ONLY the output text. No explanations, no preamble, no markdown, no code blocks."},
+            {role="system", content=SYSTEM_PROMPT},
             {role="user",   content=prompt}
         },
-        max_tokens  = 1024,
+        max_tokens  = 512,
         temperature = 0.1,
         stream      = false
     })
@@ -588,9 +628,7 @@ local function processWithAI(rawText, callback)
         end
         local finalText = cleanResponse(result or rawText)
         if finalText == "" then finalText = rawText end
-        if withEmoji then
-            finalText = addSmartEmoji(finalText)
-        end
+        if withEmoji then finalText = addSmartEmoji(finalText) end
         callback(finalText)
     end
 
@@ -671,7 +709,6 @@ local function showModeDialog(onBack)
     local ml = LinearLayout(service)
     ml.setOrientation(1); ml.setPadding(20,20,20,20)
 
-    -- Emoji Toggle
     local emojiOn  = getBool("emojiEnabled")
     local emojiBtn = Button(service)
     emojiBtn.setText(emojiOn and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
@@ -686,7 +723,6 @@ local function showModeDialog(onBack)
         service.speak("Emoji " .. (ns and "enabled" or "disabled"))
     end)
 
-    -- Emoji Style Spinner
     local esLbl = TextView(service)
     esLbl.setText("Emoji Style:"); esLbl.setTextSize(12); esLbl.setTextColor(0xFF888888)
     local eslp = LinearLayout.LayoutParams(-1,-2); eslp.setMargins(0,8,0,4); esLbl.setLayoutParams(eslp)
@@ -708,7 +744,6 @@ local function showModeDialog(onBack)
         if chosen then saveStr("emojiStyle", chosen) end
     end
 
-    -- Output Format Spinner
     local fmtLbl = TextView(service)
     fmtLbl.setText("Output Format:"); fmtLbl.setTextSize(12); fmtLbl.setTextColor(0xFF888888)
     local fmlp = LinearLayout.LayoutParams(-1,-2); fmlp.setMargins(0,0,0,4); fmtLbl.setLayoutParams(fmlp)
@@ -739,7 +774,6 @@ local function showModeDialog(onBack)
         end
     end)
 
-    -- Modes list
     local lbl = TextView(service)
     lbl.setText("Select AI Processing Mode:")
     lbl.setTextSize(14); lbl.setTextColor(0xFFCCCCCC); lbl.setPadding(0,0,0,10)
@@ -814,9 +848,8 @@ local function showSettingsDialog(onBack)
         tv.setPadding(0,0,0,5); ml.addView(tv)
     end
 
-    -- Info
     local noteTV = TextView(service)
-    noteTV.setText("Groq AI - Free, Fast & Reliable\nGet your free key from: console.groq.com/keys")
+    noteTV.setText("Groq AI - Free, Fast and Reliable\nGet free key: console.groq.com/keys")
     noteTV.setTextSize(12); noteTV.setTextColor(0xFF4CAF50); noteTV.setPadding(0,0,0,15)
     ml.addView(noteTV)
 
@@ -885,13 +918,13 @@ local function showSettingsDialog(onBack)
                     statusTV.setText("[VALID] Key tested successfully.")
                     statusTV.setTextColor(0xFF4CAF50)
                 elseif status == 401 or status == 403 then
-                    service.speak("FAILED! Invalid API key. Please check and re-enter.")
+                    service.speak("FAILED! Invalid API key.")
                     statusTV.setText("[INVALID] Please enter a correct key.")
                     statusTV.setTextColor(0xFFF44336)
                 elseif status == 0 then
-                    service.speak("No response. Check your internet connection.")
+                    service.speak("No response. Check internet connection.")
                 else
-                    service.speak("Error " .. tostring(status) .. ". Check internet or try again.")
+                    service.speak("Error " .. tostring(status) .. ". Try again.")
                 end
             end
         )
@@ -1001,7 +1034,8 @@ local function showAboutDialog(onBack)
 
     addTV("CSR MultiTyper", 26, 0xFF2196F3, 2)
     addTV("Version " .. currentVersion, 14, 0xFF757575, 2)
-    addTV("Developer: Naman Khan", 13, 0xFF9E9E9E, 20)
+    addTV("Developer: Aftab Ali (CSR Expert)", 13, 0xFF9E9E9E, 4)
+    addTV("Upgraded by: Noman Khan", 12, 0xFF607D8B, 20)
 
     addTV("Current Configuration", 14, 0xFFFF9800, 8)
     addTV(
@@ -1014,15 +1048,15 @@ local function showAboutDialog(onBack)
         "\nTranslate     : " .. getStr("targetLang","---"),
         13, 0xFFCCCCCC, 20)
 
-    addTV("What's New in v4.0", 14, 0xFFFF9800, 8)
+    addTV("What's New in v4.1", 14, 0xFFFF9800, 8)
     addTV(
-        "* Single provider: Groq AI only (free & fast)\n" ..
-        "* Removed OpenRouter, OpenAI, Google Gemini\n" ..
-        "* Simplified settings - one screen, no confusion\n" ..
-        "* All 11 modes fully working with Groq\n" ..
-        "* Faster startup and lighter plugin\n" ..
-        "* Developer: Naman Khan\n" ..
-        "* Cleaner UI and better accessibility",
+        "* AI preamble removal (Sure, Here is, Bilkul, etc.)\n" ..
+        "* Trailing notes and disclaimers auto-removed\n" ..
+        "* Stricter SYSTEM_PROMPT: no padding or extra sentences\n" ..
+        "* max_tokens reduced 1024 -> 512 for concise output\n" ..
+        "* All mode prompts shortened and tightened\n" ..
+        "* cleanResponse() upgraded with 10+ preamble patterns\n" ..
+        "* Emoji engine unchanged (working correctly)",
         13, 0xFFCCCCCC, 20)
 
     addTV("Support and Contact", 14, 0xFFFF9800, 10)
@@ -1031,22 +1065,18 @@ local function showAboutDialog(onBack)
         dlg.dismiss()
         service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://youtube.com/@csrexpert-d5v")))
     end)
-
     addBtn("WhatsApp: +92 342 5037026", 0xFF1B5E20, 8, function()
         dlg.dismiss()
         service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/923425037026")))
     end)
-
     addBtn("WhatsApp Group: CSR Expert Community", 0xFF00695C, 8, function()
         dlg.dismiss()
         service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://chat.whatsapp.com/CSRExpertGroup")))
     end)
-
     addBtn("Check for New Updates", 0xFF1565C0, 15, function()
         dlg.dismiss()
         checkForUpdates(true)
     end)
-
     addBtn("Go Back", 0xFF37474F, 0, function()
         dlg.dismiss()
         if onBack then onBack() end
@@ -1089,19 +1119,19 @@ showMainDialog = function()
     local titleTV = TextView(service)
     titleTV.setText("CSR MultiTyper v" .. currentVersion)
     titleTV.setTextSize(22); titleTV.setTextColor(0xFF2196F3)
-    titleTV.setGravity(17); titleTV.setPadding(0,0,0,3)
+    titleTV.setGravity(17); titleTV.setPadding(0,0,0,2)
     ml.addView(titleTV)
 
     local devTV = TextView(service)
-    devTV.setText("by Naman Khan  |  Groq AI")
-    devTV.setTextSize(11); devTV.setTextColor(0xFF757575); devTV.setGravity(17)
-    local d2lp = LinearLayout.LayoutParams(-1,-2); d2lp.setMargins(0,0,0,3); devTV.setLayoutParams(d2lp)
+    devTV.setText("Dev: Aftab Ali  |  Upgraded: Noman Khan")
+    devTV.setTextSize(11); devTV.setTextColor(0xFF607D8B); devTV.setGravity(17)
+    local d2lp = LinearLayout.LayoutParams(-1,-2); d2lp.setMargins(0,0,0,2); devTV.setLayoutParams(d2lp)
     ml.addView(devTV)
 
     local modeTV = TextView(service)
     modeTV.setText("Mode: " .. curModeName)
     modeTV.setTextSize(12); modeTV.setTextColor(0xFFFF9800); modeTV.setGravity(17)
-    local m2lp = LinearLayout.LayoutParams(-1,-2); m2lp.setMargins(0,0,0,3); modeTV.setLayoutParams(m2lp)
+    local m2lp = LinearLayout.LayoutParams(-1,-2); m2lp.setMargins(0,0,0,2); modeTV.setLayoutParams(m2lp)
     ml.addView(modeTV)
 
     local apiTV = TextView(service)
