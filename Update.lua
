@@ -6,1178 +6,1387 @@ import "android.speech.RecognitionListener"
 import "android.speech.RecognizerIntent"
 import "android.view.View"
 import "android.content.Context"
-import "android.net.Uri"
+import "android.os.Bundle"
 import "com.androlua.Http"
 import "cjson"
-import "com.androlua.LuaDialog"
-import "android.os.*"
-import "java.io.*"
-import "java.net.*"
+import "android.net.Uri"
 
--- CSR MultiTyper v4.1 | Groq AI Voice Typing Plugin
--- Developer: Aftab Ali (CSR Expert)
--- Upgraded by: Noman Khan
+-- ==================== AI TYPER CONFIG ====================
+local AI_PREFS = "OpenRouterTyper"
+local aiPrefs = service.getSharedPreferences(AI_PREFS, Context.MODE_PRIVATE)
+local aiEditor = aiPrefs.edit()
 
-local currentVersion = "4.1"
-local PREFS_NAME     = "CSRMultiTyper_V40"
-local prefs          = service.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-local prefsEd        = prefs.edit()
-local context        = service.getApplicationContext()
-local mainHandler    = Handler(Looper.getMainLooper())
+-- Providers
+local PROVIDERS = {"OpenRouter", "Mistral AI"}
 
-local function getStr(k,d)   return prefs.getString(k, d or "")       end
-local function getBool(k,d)  return prefs.getBoolean(k, d or false)    end
-local function saveStr(k,v)  prefsEd.putString(k,v);  prefsEd.apply() end
-local function saveBool(k,v) prefsEd.putBoolean(k,v); prefsEd.apply() end
+-- ==================== NEW: Default (hidden) API keys + Key Source option ====================
+-- SECURITY NOTE: agar yeh script kisi aur ko di jaye, yeh keys unko bhi mil jaayengi
+-- (source code kabhi bhi kholkar padha ja sakta hai). Sirf apne personal use ke liye
+-- ya trusted logon ke liye hi Default use karo.
+local DEFAULT_OPENROUTER_KEY = "sk-or-v1-881a2ebdf158213c9f2bc87f4041faa6d48f713e9b39958840bc45d15e056ea"
+local DEFAULT_MISTRAL_KEY = "15LOTenvAWCp7GMO1Qcf1yuRDJtCYblB2"
 
--- ============================================================
--- VIBRATION ENGINE
--- ============================================================
-local function vibratePhone(ms)
-    pcall(function()
-        local vib = context.getSystemService(Context.VIBRATOR_SERVICE)
-        if vib and vib.hasVibrator() then
-            vib.vibrate(ms or 200)
-        end
-    end)
+local KEY_SOURCE_OPTIONS = {"Default (Chhupi Hui Key)", "Custom (Apni Key)"}
+
+-- OpenRouter Models
+local OPENROUTER_MODELS = {
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
+    "microsoft/phi-3-mini-128k",
+    "anthropic/claude-3-haiku",
+    "mistralai/mistral-7b-instruct"
+}
+
+-- Mistral Models
+local MISTRAL_MODELS = {
+    "mistral-large-latest",
+    "mistral-small-latest",
+    "open-mixtral-8x22b",
+    "open-mistral-nemo"
+}
+
+-- ==================== NEW: TYPING LANGUAGE MODE ====================
+-- Translation feature hata di gayi hai. Ab iski jagah "Typing Language" hai:
+-- jo language select karoge, AI usi language/script mein SAHI, PROFESSIONAL
+-- typing karega (translate nahi karega — jo bola gaya wahi likhega, bas sahi
+-- script/spelling ke saath).
+local TYPING_LANGUAGES = {
+    "Auto (Jaisa Bola Jaye)",
+    "Roman Urdu",
+    "Miyari Urdu (Urdu Script)",
+    "English",
+    "Bengali",
+    "Sindhi",
+    "Punjabi",
+    "Hindi",
+    "Arabic",
+    "Nepali",
+    "Pashto"
+}
+
+local TYPING_LANGUAGE_INSTRUCTIONS = {
+    ["Auto (Jaisa Bola Jaye)"] = "Keep the text in whatever language/script it was originally spoken in. Do not translate or switch language.",
+    ["Roman Urdu"] = "Write strictly in Roman Urdu (Urdu language using English/Latin letters), with correct spelling and natural Roman Urdu conventions. Do not switch to Urdu script.",
+    ["Miyari Urdu (Urdu Script)"] = "Write strictly in standard (Miyari) Urdu using proper Urdu script (اردو رسم الخط), with correct spelling, grammar and Urdu punctuation.",
+    ["English"] = "Write strictly in correct, professional English with proper spelling and grammar.",
+    ["Bengali"] = "Write strictly in correct Bengali (বাংলা) script with proper spelling and grammar.",
+    ["Sindhi"] = "Write strictly in correct Sindhi (سنڌي) with proper spelling and grammar.",
+    ["Punjabi"] = "Write strictly in correct Punjabi with proper spelling and grammar (Shahmukhi or Gurmukhi as appropriate to the input).",
+    ["Hindi"] = "Write strictly in correct Hindi (हिन्दी) Devanagari script with proper spelling and grammar.",
+    ["Arabic"] = "Write strictly in correct Arabic (العربية) with proper spelling and grammar.",
+    ["Nepali"] = "Write strictly in correct Nepali (नेपाली) with proper spelling and grammar.",
+    ["Pashto"] = "Write strictly in correct Pashto (پښتو) with proper spelling and grammar.",
+}
+
+-- ==================== NEW: AFTER-SENTENCE FORMAT OPTIONS ====================
+-- Har sentence ke baad kya lagana hai, yeh spinner isko control karta hai.
+local AFTER_SENTENCE_OPTIONS = {
+    "Kuch Nahi (Normal)",
+    "Sirf Emoji",
+    "Sirf New Line",
+    "Emoji + New Line"
+}
+
+-- ==================== NEW: WRITING MODES (24 total) ====================
+-- AI Engine Settings ke andar "acha acha mode" — yeh AI ke likhne ka andaz badalta hai.
+local WRITING_MODES = {
+    "Normal",
+    "Professional (Bilkul Sahi)",
+    "Casual (Dostana)",
+    "Concise (Mukhtasar)",
+    "Detailed (Tafseeli)",
+    "Poetic (Shayarana)",
+    "Adabi Urdu (Literary)",
+    "Telegram Post",
+    "Breaking News",
+    "Romantic",
+    "Business Email (Karobari)",
+    "Social Media Caption",
+    "Academic Formal",
+    "Motivational (Josh Afza)",
+    "Diary (Zaati Note)",
+    "News Report (Khabar Andaz)",
+    "WhatsApp Chat",
+    "Legal / Contract",
+    "Speech / Lecture",
+    "Children's Story",
+    "Technical Manual",
+    "Religious / Khutbah",
+    "Condolence (Taziyat)",
+    "Debate (Munazra)"
+}
+
+local WRITING_MODE_INSTRUCTIONS = {
+    ["Normal"] = "Write in a natural, everyday tone. Do not change the meaning, wording or add new information — only fix spelling and punctuation.",
+    ["Professional (Bilkul Sahi)"] = "CRITICAL — HIGHEST PRIORITY INSTRUCTION: This is exact, publication-grade professional dictation mode. Type EXACTLY what was spoken, word for word — do NOT rephrase, do NOT summarize, do NOT paraphrase, do NOT add or remove a single word, do NOT change the meaning, tone or word order in any way. Your ONLY job is: (1) fix spelling mistakes, (2) add correct, natural, grammatically-precise punctuation (commas, full stops, question marks, exclamation marks) exactly where standard grammar requires it, and (3) fix obvious capitalization. Absolutely zero tolerance for typing mistakes, missing words, or altered meaning — the final output must read like it was typed flawlessly by a senior professional human stenographer/typist, ready to be sent or published with no further editing needed. Double-check every sentence before finalizing your answer.",
+    ["Casual (Dostana)"] = "Write in a warm, friendly, casual tone, as if talking to a close friend, without changing the core meaning.",
+    ["Concise (Mukhtasar)"] = "Keep sentences short and to the point. Avoid unnecessary words and filler, without dropping any actual information that was said.",
+    ["Detailed (Tafseeli)"] = "Expand on the ideas with more descriptive, thorough sentences, while staying strictly on topic and not inventing new facts.",
+    ["Poetic (Shayarana)"] = "Use a poetic, expressive, slightly literary tone, while preserving the original meaning.",
+    ["Adabi Urdu (Literary)"] = "Use elegant, literary Urdu vocabulary and phrasing where the language is Urdu; otherwise keep it eloquent.",
+    ["Telegram Post"] = "Format as a clean, punchy Telegram channel post: short punchy lines, clear structure, suitable for a public channel audience.",
+    ["Breaking News"] = "Format as an urgent Breaking News flash: short, high-impact sentences, formal news-style opening (e.g. 'Breaking:' style urgency), factual tone.",
+    ["Romantic"] = "Write in a warm, romantic, affectionate tone suitable for a loved one, while keeping the original meaning intact.",
+    ["Business Email (Karobari)"] = "Format as a formal business email: polite, professional, clear and to the point, suitable for a client or colleague.",
+    ["Social Media Caption"] = "Write as an engaging social media caption: natural, catchy, conversational, suitable for a post.",
+    ["Academic Formal"] = "Write in a formal academic tone: precise vocabulary, correct grammar, no slang, suitable for a report or essay.",
+    ["Motivational (Josh Afza)"] = "Write in an energetic, motivational, inspiring tone, while preserving the original meaning.",
+    ["Diary (Zaati Note)"] = "Write in a reflective, personal diary/journal tone, first-person and intimate.",
+    ["News Report (Khabar Andaz)"] = "Write in a neutral, factual news-report style, third-person, formal, no opinions added.",
+    ["WhatsApp Chat"] = "Format as a natural WhatsApp message: short, friendly, conversational sentences, easy to read on a phone screen, without being overly formal.",
+    ["Legal / Contract"] = "Write in precise, formal legal/contract language: unambiguous wording, correct legal punctuation, no slang, suitable for an agreement or official document.",
+    ["Speech / Lecture"] = "Format as a spoken speech or lecture: clear rhetorical structure, natural pauses indicated by punctuation, engaging and suitable for reading aloud to an audience.",
+    ["Children's Story"] = "Write in a simple, warm, story-telling tone suitable for children, using easy words and a gentle narrative flow, while preserving the original meaning.",
+    ["Technical Manual"] = "Write in a clear, precise technical/instructional tone: numbered or logically ordered steps where appropriate, no ambiguity, suitable for a manual or guide.",
+    ["Religious / Khutbah"] = "Write in a respectful, formal religious sermon (khutbah) tone, dignified and sincere, suitable for a religious talk or reminder.",
+    ["Condolence (Taziyat)"] = "Write in a gentle, respectful, comforting condolence-message tone, suitable for expressing sympathy on a loss.",
+    ["Debate (Munazra)"] = "Write in a confident, persuasive, structured debate/argument tone, clearly making the point while remaining respectful.",
+}
+
+-- Active Provider Functions
+function getActiveProvider()
+    return aiPrefs.getString("active_provider", "OpenRouter")
 end
 
--- ============================================================
--- CUSTOM HTTP ENGINE (Java URLConnection)
--- ============================================================
-local function httpPostAsync(url, body, hdrs, callback)
-    Thread(luajava.bindClass("java.lang.Runnable"){
-        run = function()
-            local code = 0
-            local resp = nil
-            pcall(function()
-                local conn = URL(url).openConnection()
-                conn.setRequestMethod("POST")
-                conn.setDoOutput(true)
-                conn.setDoInput(true)
-                conn.setUseCaches(false)
-                conn.setConnectTimeout(30000)
-                conn.setReadTimeout(30000)
-                for k, v in pairs(hdrs) do
-                    conn.setRequestProperty(k, v)
-                end
-                local dos = DataOutputStream(conn.getOutputStream())
-                for i = 1, #body do
-                    dos.writeByte(body:byte(i))
-                end
-                dos.flush()
-                dos.close()
-                code = conn.getResponseCode()
-                local stream
-                if code >= 200 and code < 300 then
-                    stream = conn.getInputStream()
-                else
-                    stream = conn.getErrorStream()
-                    if stream == nil then stream = conn.getInputStream() end
-                end
-                if stream ~= nil then
-                    local br = BufferedReader(InputStreamReader(stream, "UTF-8"))
-                    local sb = StringBuilder()
-                    local ln = br.readLine()
-                    while ln ~= nil do
-                        sb.append(ln)
-                        ln = br.readLine()
-                    end
-                    br.close()
-                    resp = sb.toString()
-                end
-                conn.disconnect()
-            end)
-            mainHandler.post(Runnable({run=function()
-                callback(code, resp)
-            end}))
-        end
-    }).start()
+function saveActiveProvider(provider)
+    aiEditor.putString("active_provider", provider)
+    aiEditor.commit()
 end
 
-local function httpGetAsync(url, hdrs, callback)
-    Thread(luajava.bindClass("java.lang.Runnable"){
-        run = function()
-            local code = 0
-            local resp = nil
-            pcall(function()
-                local conn = URL(url).openConnection()
-                conn.setRequestMethod("GET")
-                conn.setDoInput(true)
-                conn.setUseCaches(false)
-                conn.setConnectTimeout(30000)
-                conn.setReadTimeout(30000)
-                if hdrs then
-                    for k, v in pairs(hdrs) do
-                        conn.setRequestProperty(k, v)
-                    end
-                end
-                code = conn.getResponseCode()
-                local stream
-                if code >= 200 and code < 300 then
-                    stream = conn.getInputStream()
-                else
-                    stream = conn.getErrorStream()
-                    if stream == nil then stream = conn.getInputStream() end
-                end
-                if stream ~= nil then
-                    local br = BufferedReader(InputStreamReader(stream, "UTF-8"))
-                    local sb = StringBuilder()
-                    local ln = br.readLine()
-                    while ln ~= nil do
-                        sb.append(ln)
-                        ln = br.readLine()
-                    end
-                    br.close()
-                    resp = sb.toString()
-                end
-                conn.disconnect()
-            end)
-            mainHandler.post(Runnable({run=function()
-                callback(code, resp)
-            end}))
-        end
-    }).start()
+-- ==================== NEW: Key Source getters/setters ====================
+function getOpenRouterKeySource()
+    return aiPrefs.getString("openrouter_keySource", "default") -- "default" | "custom"
 end
 
--- ==================== AUTO UPDATE ====================
-local VERSION_URL   = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Version.txt"
-local UPDATE_URL    = "https://raw.githubusercontent.com/nomanshihzada-lang/CSR-MultiTyper/main/Update.lua"
-local PLUGIN_PATH   = "/storage/emulated/0/\xE8\xA7\xA3\xE8\xAF\xB4/Plugins/CSR MultiTyper/main.lua"
-local updateRunning = false
-
-local function trim(s)
-    return s and tostring(s):gsub("^%s*(.-)%s*$", "%1") or ""
+function saveOpenRouterKeySource(source)
+    aiEditor.putString("openrouter_keySource", source)
+    aiEditor.commit()
 end
 
-local function versionGreater(latest, current)
-    local lMaj, lMin = latest:match("^(%d+)%.?(%d*)")
-    local cMaj, cMin = current:match("^(%d+)%.?(%d*)")
-    lMaj = tonumber(lMaj) or 0; lMin = tonumber(lMin) or 0
-    cMaj = tonumber(cMaj) or 0; cMin = tonumber(cMin) or 0
-    if lMaj ~= cMaj then return lMaj > cMaj end
-    return lMin > cMin
+function getMistralKeySource()
+    return aiPrefs.getString("mistral_keySource", "default") -- "default" | "custom"
 end
 
-local function performUpdate(code, ver)
-    if not code or trim(code) == "" then
-        service.speak("Update failed: empty file")
-        return
+function saveMistralKeySource(source)
+    aiEditor.putString("mistral_keySource", source)
+    aiEditor.commit()
+end
+
+-- OpenRouter Keys
+-- Yeh function resolve karta hai: agar source "custom" hai to user ki apni key,
+-- warna hidden Default key wapis karta hai.
+function getOpenRouterApiKey()
+    if getOpenRouterKeySource() == "custom" then
+        return aiPrefs.getString("openrouter_custom_apiKey", "")
     end
-    updateRunning = true
-    local function doIt()
-        local tmp = PLUGIN_PATH .. ".tmp"
-        local f   = io.open(tmp, "w")
-        if not f then
-            updateRunning = false
-            service.speak("Update failed: cannot write file.")
-            return
-        end
-        f:write(code); f:close()
-        pcall(os.remove, PLUGIN_PATH)
-        local ok = pcall(os.rename, tmp, PLUGIN_PATH)
-        updateRunning = false
-        if ok then
-            mainHandler.post(Runnable({run=function()
-                local ud = LuaDialog(service)
-                ud.setTitle("Update Successful")
-                ud.setMessage("Updated to v" .. ver .. "! Plugin restarting in 2 seconds.")
-                ud.setButton("OK", function()
-                    ud.dismiss()
-                    mainHandler.postDelayed(Runnable({run=function()
-                        local fn, err = loadfile(PLUGIN_PATH)
-                        if fn then pcall(fn)
-                        else service.speak("Reload error: " .. tostring(err)) end
-                    end}), 2000)
-                end)
-                ud.show()
-            end}))
+    return DEFAULT_OPENROUTER_KEY
+end
+
+-- Sirf CUSTOM key store karta hai — Default key kabhi is file mein save nahi hoti
+-- (woh already code ke andar hai).
+function saveOpenRouterApiKey(key)
+    aiEditor.putString("openrouter_custom_apiKey", key)
+    aiEditor.commit()
+end
+
+function getOpenRouterCustomKeyRaw()
+    return aiPrefs.getString("openrouter_custom_apiKey", "")
+end
+
+function getOpenRouterModel()
+    return aiPrefs.getString("openrouter_model", "google/gemini-2.0-flash-001")
+end
+
+function saveOpenRouterModel(model)
+    aiEditor.putString("openrouter_model", model)
+    aiEditor.commit()
+end
+
+-- Mistral Keys
+function getMistralApiKey()
+    if getMistralKeySource() == "custom" then
+        return aiPrefs.getString("mistral_custom_apiKey", "")
+    end
+    return DEFAULT_MISTRAL_KEY
+end
+
+function saveMistralApiKey(key)
+    aiEditor.putString("mistral_custom_apiKey", key)
+    aiEditor.commit()
+end
+
+function getMistralCustomKeyRaw()
+    return aiPrefs.getString("mistral_custom_apiKey", "")
+end
+
+function getMistralModel()
+    return aiPrefs.getString("mistral_model", "mistral-large-latest")
+end
+
+function saveMistralModel(model)
+    aiEditor.putString("mistral_model", model)
+    aiEditor.commit()
+end
+
+function isEmojiEnabled()
+    return aiPrefs.getBoolean("emojiEnabled", false)
+end
+
+function setEmojiEnabled(enabled)
+    aiEditor.putBoolean("emojiEnabled", enabled)
+    aiEditor.commit()
+end
+
+-- ==================== NEW: Typing Language getters/setters (Translation replaced) ====================
+function getTypingLanguage()
+    return aiPrefs.getString("typingLanguage", "Auto (Jaisa Bola Jaye)")
+end
+
+function saveTypingLanguage(langName)
+    aiEditor.putString("typingLanguage", langName)
+    aiEditor.commit()
+end
+
+-- ==================== NEW: After-sentence format getters/setters ====================
+function getAfterSentenceStyleIndex()
+    return aiPrefs.getInt("afterSentenceStyle", 1) -- 1 = "Kuch Nahi (Normal)"
+end
+
+function saveAfterSentenceStyleIndex(index)
+    aiEditor.putInt("afterSentenceStyle", index)
+    aiEditor.commit()
+end
+
+-- ==================== NEW: Writing mode getters/setters ====================
+function getWritingMode()
+    return aiPrefs.getString("writingMode", "Professional (Bilkul Sahi)")
+end
+
+function saveWritingMode(mode)
+    aiEditor.putString("writingMode", mode)
+    aiEditor.commit()
+end
+
+function testOpenRouterAPI(apiKey, model, callback)
+    local url = "https://openrouter.ai/api/v1/auth/key"
+    local headers = {
+        ["Authorization"] = "Bearer " .. apiKey
+    }
+    
+    Http.get(url, headers, function(status, data)
+        if status == 200 then
+            callback(true, "API key is valid!")
+        elseif status == 401 then
+            callback(false, "Invalid API key")
         else
-            pcall(os.remove, tmp)
-            service.speak("Update failed: rename error.")
+            callback(false, "Error: " .. status)
         end
-    end
-    Thread(luajava.bindClass("java.lang.Runnable"){run=doIt}).start()
-end
-
-local function checkForUpdates(manual)
-    if updateRunning then
-        if manual then service.speak("Update already running.") end
-        return
-    end
-    if manual then service.speak("Checking for updates...") end
-    local ts = tostring(os.time())
-    Http.get(VERSION_URL .. "?t=" .. ts, {}, function(code, resp)
-        if code ~= 200 or not resp then
-            if manual then service.speak("Update check failed. Check internet.") end
-            return
-        end
-        local latest = trim(resp)
-        if latest == "" or not versionGreater(latest, currentVersion) then
-            if manual then service.speak("You have the latest version " .. currentVersion) end
-            return
-        end
-        Http.get(UPDATE_URL .. "?t=" .. ts, {}, function(code2, newCode)
-            if code2 ~= 200 or not newCode or trim(newCode) == "" then return end
-            mainHandler.post(Runnable({run=function()
-                local dlg = LuaDialog(service)
-                dlg.setTitle("New Update Available!")
-                dlg.setMessage("Version " .. latest .. " is ready!\nYour version: " .. currentVersion .. "\n\nUpdate now?")
-                dlg.setButton("Update Now", function()
-                    dlg.dismiss()
-                    performUpdate(newCode, latest)
-                end)
-                dlg.setButton2("Later", function() dlg.dismiss() end)
-                dlg.show()
-            end}))
-        end)
     end)
 end
 
--- ==================== GROQ MODELS ====================
-local GROQ_MODELS = {
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
-    "deepseek-r1-distill-llama-70b",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-}
-
--- ==================== LANGUAGES ====================
-local langNames = {
-    "Urdu (Pakistan)","English (US)","English (UK)","Hindi (India)",
-    "Arabic (Saudi Arabia)","Persian (Iran)","Pashto (Pakistan)","Sindhi (Pakistan)",
-    "Spanish (Spain)","French (France)","German (Germany)","Chinese (Mandarin)",
-    "Japanese (Japan)","Turkish (Turkey)","Russian (Russia)",
-    "Portuguese (Brazil)","Italian (Italy)","Korean (South Korea)",
-    "Bengali (Bangladesh)","Punjabi (Pakistan)","Indonesian (Indonesia)",
-    "Dutch (Netherlands)","Vietnamese (Vietnam)","Thai (Thailand)","Malay (Malaysia)"
-}
-local langCodes = {
-    "ur-PK","en-US","en-GB","hi-IN","ar-SA","fa-IR","ps-PK","sd-PK",
-    "es-ES","fr-FR","de-DE","zh-CN","ja-JP","tr-TR","ru-RU",
-    "pt-BR","it-IT","ko-KR","bn-BD","pa-PK","id-ID",
-    "nl-NL","vi-VN","th-TH","ms-MY"
-}
-local transLangs = {
-    "English","Urdu","Hindi","Arabic","Spanish","French",
-    "German","Turkish","Russian","Chinese","Punjabi","Bengali",
-    "Portuguese","Italian","Korean","Indonesian","Dutch","Vietnamese","Thai","Malay"
-}
-
--- ==================== MODES (11) ====================
-local MODES = {
-    "Auto Fix","Conversion","Intelligent Writer","Professional",
-    "Translation","Funny","Romantic","Shayari",
-    "Motivational","Breaking News","SMS Style"
-}
-local MODE_KEYS = {
-    "auto_fix","conversion","intelligent","professional",
-    "translation","funny","romantic","shayari",
-    "motivational","breaking_news","sms_style"
-}
-local MODE_DESC = {
-    "Fix spelling and add proper punctuation",
-    "Mixed Script: Urdu structure with English names and terms",
-    "Enhance text quality, grammar and natural flow",
-    "Formal professional business communication",
-    "Translate voice to selected target language",
-    "Rewrite in funny witty comedy style",
-    "Express in romantic loving poetic tone",
-    "Convert to beautiful Urdu Shayari poetry",
-    "Powerful motivational inspirational message",
-    "Dramatic breaking news announcement style",
-    "Short crisp SMS and WhatsApp style"
-}
-local MODE_COLORS = {
-    0xFF006064,0xFFE65100,0xFF4A148C,0xFF1B5E20,0xFF880E4F,
-    0xFFE91E63,0xFFAD1457,0xFF795548,0xFF1565C0,0xFFB71C1C,0xFF00838F
-}
-
--- ==================== OUTPUT FORMAT ====================
-local FORMAT_STYLES = {"Normal Text","Short and Crisp","Detailed","Bullet Points","Numbered Steps","Paragraph Style"}
-local FORMAT_KEYS   = {"normal","short","detailed","bullets","numbered","paragraph"}
-
-local function getFormatInstruction(fmt)
-    if fmt == "short"     then return "\nKEEP OUTPUT VERY SHORT. Max 2-3 sentences only."
-    elseif fmt == "detailed"  then return "\nGive a detailed elaborate response."
-    elseif fmt == "bullets"   then return "\nFormat as bullet points using - symbol."
-    elseif fmt == "numbered"  then return "\nFormat as numbered steps 1. 2. 3."
-    elseif fmt == "paragraph" then return "\nFormat as clean structured paragraphs." end
-    return ""
-end
-
--- ==================== SMART EMOJI ENGINE ====================
-local EMOJI_STYLES     = {"Smart Match","Expressive","Hearts","Stars","Nature","Fun Pack"}
-local EMOJI_STYLE_KEYS = {"smart","expressive","hearts","stars","nature","fun"}
-
-local STYLE_POOLS = {
-    expressive = {"\xF0\x9F\x98\x82","\xF0\x9F\xA4\xA3","\xF0\x9F\x98\x8D","\xF0\x9F\xA5\xB0","\xF0\x9F\x98\x8E","\xF0\x9F\xA4\xA9","\xF0\x9F\xA5\xB3","\xF0\x9F\x98\x87","\xF0\x9F\xA4\xAF","\xF0\x9F\x98\xB1","\xF0\x9F\x98\x8A","\xF0\x9F\x98\x86"},
-    hearts     = {"\xE2\x9D\xA4","\xF0\x9F\x92\x95","\xF0\x9F\x92\x97","\xF0\x9F\x92\x93","\xF0\x9F\x92\x96","\xF0\x9F\x91\x8D","\xF0\x9F\x92\x98","\xF0\x9F\x92\x9E","\xF0\x9F\xA7\xA1","\xF0\x9F\x92\x9B","\xF0\x9F\x92\x9A","\xF0\x9F\x92\x99","\xF0\x9F\x92\x9C"},
-    stars      = {"\xE2\xAD\x90","\xF0\x9F\x8C\x9F","\xE2\x9C\xA8","\xF0\x9F\x92\xAB","\xF0\x9F\x8C\xA0","\xF0\x9F\x94\xA5","\xF0\x9F\x92\xA5","\xF0\x9F\x8C\x8C","\xF0\x9F\x8E\x87","\xF0\x9F\x8E\x86"},
-    nature     = {"\xF0\x9F\x8C\xB8","\xF0\x9F\x8C\xBA","\xF0\x9F\x8C\xBB","\xF0\x9F\x8C\xB9","\xF0\x9F\x8C\xB7","\xF0\x9F\x8D\x83","\xF0\x9F\x8C\xBF","\xF0\x9F\x8C\xB1","\xF0\x9F\x8D\x80","\xF0\x9F\x8C\xBC","\xF0\x9F\x8C\x9E","\xF0\x9F\x8C\x88"},
-    fun        = {"\xF0\x9F\x8E\x89","\xF0\x9F\x8E\x8A","\xF0\x9F\x8E\x88","\xF0\x9F\xA5\xB3","\xF0\x9F\x8E\xAF","\xF0\x9F\x8E\xAE","\xF0\x9F\x8E\xB8","\xF0\x9F\x8E\xB5","\xF0\x9F\x8E\xB6","\xF0\x9F\x8F\x86","\xF0\x9F\x8E\x81","\xF0\x9F\x8E\xAA"},
-}
-
-local EMOJI_MAP = {
-    {"\xD8\xA7\xD9\x84\xD9\x84\xDB\x81","\xF0\x9F\xA4\xB2"},{"\xD8\xA7\xD9\x84\xD9\x84\xD9\x87","\xF0\x9F\xA4\xB2"},{"Allah","\xF0\x9F\xA4\xB2"},
-    {"\xD8\xAF\xD8\xB9\xD8\xA7","\xF0\x9F\x99\x8F"},{"prayer","\xF0\x9F\x99\x8F"},{"\xD9\x86\xD9\x85\xD8\xA7\xD8\xB2","\xF0\x9F\x95\x8C"},
-    {"\xD8\xA7\xD9\x84\xD8\xAD\xD9\x85\xD8\xAF","\xF0\x9F\x98\x8A"},{"\xD9\x85\xD8\xA7\xD8\xB4\xD8\xA7\xD8\xA1","\xE2\x9C\xA8"},{"\xD8\xB3\xD8\xA8\xD8\xAD\xD8\xA7\xD9\x86","\xE2\x9C\xA8"},
-    {"\xD8\xA7\xD9\x86\xD8\xB4\xD8\xA7\xD8\xA1","\xF0\x9F\xA4\xB2"},{"\xD8\xB1\xD9\x85\xD8\xB6\xD8\xA7\xD9\x86","\xF0\x9F\x8C\x99"},{"\xD8\xB9\xDB\x8C\xD8\xAF","\xF0\x9F\x8E\x89"},
-    {"\xD9\x82\xD8\xB1\xD8\xA2\xD9\x86","\xF0\x9F\x93\x96"},{"quran","\xF0\x9F\x93\x96"},{"\xD8\xAD\xD8\xAF\xDB\x8C\xD8\xAB","\xF0\x9F\x93\x96"},
-    {"\xD8\xB4\xDA\xA9\xD8\xB1\xDB\x8C\xDB\x81","\xF0\x9F\x99\x8F"},{"thank","\xF0\x9F\x99\x8F"},{"please","\xF0\x9F\x99\x8F"},
-    {"\xD8\xA7\xD9\x84\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85","\xF0\x9F\x91\x8B"},{"hello","\xF0\x9F\x91\x8B"},{"hi ","\xF0\x9F\x91\x8B"},{"bye","\xF0\x9F\x91\x8B"},
-    {"\xD8\xAE\xD9\x88\xD8\xB4","\xF0\x9F\x98\x8A"},{"happy","\xF0\x9F\x98\x8A"},{"\xD8\xAE\xD9\x88\xD8\xB4\xDB\x8C","\xF0\x9F\x98\x8A"},
-    {"\xD8\xA7\xDA\x86\xDA\xBE\xD8\xA7","\xF0\x9F\x98\x8A"},{"\xD8\xA7\xDA\x86\xDA\xBE\xDB\x8C","\xF0\x9F\x98\x8A"},{"\xD8\xA8\xDB\x81\xD8\xAA\xD8\xB1\xDB\x8C\xD9\x86","\xF0\x9F\x8C\x9F"},
-    {"great","\xF0\x9F\x8C\x9F"},{"best","\xF0\x9F\x8C\x9F"},{"\xD8\xB2\xD8\xA8\xD8\xB1\xD8\xAF\xD8\xB3\xD8\xAA","\xF0\x9F\x92\xAA"},
-    {"amazing","\xF0\x9F\x94\xA5"},{"\xD8\xB4\xD8\xA7\xD9\x86\xD8\xAF\xD8\xA7\xD8\xB1","\xF0\x9F\x8C\x9F"},{"\xD9\x85\xD8\xA8\xD8\xA7\xD8\xB1\xDA\xA9","\xF0\x9F\x8E\x89"},
-    {"congratul","\xF0\x9F\x8E\x89"},{"\xD9\x85\xD8\xA8\xD8\xA7\xD8\xB1\xDA\xA9\xD8\xA8\xD8\xA7\xD8\xAF","\xF0\x9F\x8E\x8A"},{"\xDA\xA9\xD8\xA7\xD9\x85\xDB\x8C\xD8\xA7\xD8\xA8","\xF0\x9F\x8F\x86"},
-    {"success","\xF0\x9F\x8F\x86"},{"\xD8\xAC\xDB\x8C\xD8\xAA","\xF0\x9F\x8F\x86"},{"win","\xF0\x9F\x8F\x86"},
-    {"\xD8\xAE\xD9\x88\xD8\xA8\xD8\xB5\xD9\x88\xD8\xB1\xD8\xAA","\xF0\x9F\x98\x8D"},{"beautiful","\xF0\x9F\x98\x8D"},{"\xD9\xBE\xD8\xB3\xD9\x86\xD8\xAF","\xF0\x9F\x91\x8D"},
-    {"like","\xF0\x9F\x91\x8D"},{"love","\xE2\x9D\xA4"},{"\xD9\x85\xD8\xAD\xD8\xA8\xD8\xAA","\xE2\x9D\xA4"},
-    {"\xD8\xA7\xD9\x81\xD8\xB3\xD9\x88\xD8\xB3","\xF0\x9F\x98\x94"},{"sad","\xF0\x9F\x98\x94"},{"\xD8\xAF\xDA\xA9\xDA\xBE","\xF0\x9F\x98\xA2"},
-    {"\xD9\x85\xD8\xB4\xDA\xA9\xD9\x84","\xF0\x9F\x98\x9F"},{"problem","\xF0\x9F\x98\x9F"},{"\xD9\xBE\xD8\xB1\xDB\x8C\xD8\xB4\xD8\xA7\xD9\x86","\xF0\x9F\x98\x9F"},
-    {"worried","\xF0\x9F\x98\x9F"},{"\xD8\xA8\xD8\xB1\xD8\xA7","\xF0\x9F\x98\x9E"},{"bad","\xF0\x9F\x98\x9E"},
-    {"\xD8\xBA\xD8\xB5\xDB\x81","\xF0\x9F\x98\xA0"},{"angry","\xF0\x9F\x98\xA0"},{"\xD8\xB1\xD9\x88\xD9\x86\xD8\xA7","\xF0\x9F\x98\xA2"},{"cry","\xF0\x9F\x98\xA2"},
-    {"\xDA\xA9\xDA\xBE\xD8\xA7\xD9\x86\xD8\xA7","\xF0\x9F\x8D\xB4"},{"food","\xF0\x9F\x8D\xB4"},{"\xDA\xA9\xDA\xBE\xD8\xA7\xDB\x8C\xD8\xA7","\xF0\x9F\x98\x8B"},
-    {"\xD9\x85\xD8\xB2\xDB\x8C\xD8\xAF\xD8\xA7\xD8\xB1","\xF0\x9F\x98\x8B"},{"delicious","\xF0\x9F\x98\x8B"},{"\xD9\xBE\xDB\x8C\xD9\x86\xD8\xA7","\xF0\x9F\xA5\xA4"},
-    {"\xDA\x86\xD8\xA7\xD8\xA6\xDB\x92","\xE2\x98\x95"},{"tea","\xE2\x98\x95"},{"coffee","\xE2\x98\x95"},
-    {"\xD9\xBE\xDA\xBE\xD9\x84","\xF0\x9F\x8E\x8D"},{"fruit","\xF0\x9F\x8E\x8D"},{"\xD8\xAF\xD9\x88\xD8\xAF\xDA\xBE","\xF0\x9F\xA5\x9B"},
-    {"\xD8\xB3\xD9\x81\xD8\xB1","\xE2\x9C\x88"},{"travel","\xE2\x9C\x88"},{"\xDA\xAF\xD8\xA7\xDA\x91\xDB\x8C","\xF0\x9F\x9A\x97"},
-    {"car","\xF0\x9F\x9A\x97"},{"\xD9\xB9\xD8\xB1\xDB\x8C\xD9\x86","\xF0\x9F\x9A\x82"},{"train","\xF0\x9F\x9A\x82"},{"\xD8\xA8\xD8\xB3","\xF0\x9F\x9A\x8C"},
-    {"\xDA\xA9\xD8\xA7\xD9\x85","\xF0\x9F\x92\xBC"},{"work","\xF0\x9F\x92\xBC"},{"\xDA\xA9\xD8\xA7\xD8\xB1\xD9\x88\xD8\xA8\xD8\xA7\xD8\xB1","\xF0\x9F\x92\xBC"},
-    {"\xD9\x85\xDA\xA9\xD9\x85\xD9\x84","\xE2\x9C\x85"},{"\xD8\xAE\xD8\xAA\xD9\x85","\xE2\x9C\x85"},{"done","\xE2\x9C\x85"},
-    {"finish","\xE2\x9C\x85"},{"complete","\xE2\x9C\x85"},{"\xD8\xAA\xDB\x8C\xD8\xA7\xD8\xB1","\xE2\x9C\x85"},{"ready","\xE2\x9C\x85"},
-    {"\xD9\xBE\xDA\x91\xDA\xBE","\xF0\x9F\x93\x9A"},{"study","\xF0\x9F\x93\x9A"},{"school","\xF0\x9F\x8F\xAB"},
-    {"\xD8\xB3\xDB\x8C\xDA\xA9\xDA\xBE","\xF0\x9F\x8E\x93"},{"learn","\xF0\x9F\x8E\x93"},{"college","\xF0\x9F\x8E\x93"},
-    {"university","\xF0\x9F\x8E\x93"},{"\xDA\xA9\xD9\x84\xD8\xA7\xD8\xB3","\xF0\x9F\x93\x9A"},
-    {"\xD9\x85\xD9\x88\xD8\xB3\xD9\x85","\xE2\x9B\x85"},{"weather","\xE2\x9B\x85"},{"\xD8\xA8\xD8\xA7\xD8\xB1\xD8\xB4","\xF0\x9F\x8C\xA7"},
-    {"\xD8\xAF\xDA\xBE\xD9\x88\xD9\xBE","\xE2\x98\x80"},{"sunny","\xE2\x98\x80"},{"\xDA\xAF\xD8\xB1\xD9\x85","\xF0\x9F\x8C\xA1"},
-    {"\xD8\xB3\xD8\xB1\xD8\xAF\xDB\x8C","\xE2\x9D\x84"},{"cold","\xE2\x9D\x84"},{"\xDB\x81\xD9\x88\xD8\xA7","\xF0\x9F\x92\xA8"},
-    {"wind","\xF0\x9F\x92\xA8"},{"\xD8\xB7\xD9\x88\xD9\x81\xD8\xA7\xD9\x86","\xF0\x9F\x8C\xA9"},
-    {"\xD8\xA8\xDB\x8C\xD9\x85\xD8\xA7\xD8\xB1","\xF0\x9F\x8F\xA5"},{"sick","\xF0\x9F\xA4\x92"},{"\xD8\xAF\xD9\x88\xD8\xA7\xD8\xA6\xDB\x8C","\xF0\x9F\x92\x8A"},
-    {"\xDA\x88\xD8\xA7\xDA\xA9\xD9\xB9\xD8\xB1","\xF0\x9F\x8F\xA5"},{"doctor","\xF0\x9F\x8F\xA5"},{"hospital","\xF0\x9F\x8F\xA5"},
-    {"\xD8\xB5\xD8\xAD\xD8\xAA","\xF0\x9F\x92\xAA"},{"health","\xF0\x9F\x92\xAA"},{"\xD9\xB9\xDA\xBE\xDB\x8C\xDA\xA9","\xF0\x9F\x98\x8A"},
-    {"\xD9\xBE\xDB\x8C\xD8\xA7\xD8\xB1","\xF0\x9F\x92\x95"},{"family","\xF0\x9F\x91\xAA"},{"\xD9\x85\xD8\xA7\xDA\xBA","\xF0\x9F\x91\xA9"},
-    {"\xD8\xA8\xD8\xA7\xD9\xBE","\xF0\x9F\x91\xA8"},{"\xD8\xA8\xDA\xBE\xD8\xA7\xD8\xA6\xDB\x8C","\xF0\x9F\xA4\x9D"},{"\xD8\xA8\xDB\x81\xD9\x86","\xF0\x9F\x92\x95"},
-    {"\xD8\xA8\xDA\x86\xDB\x81","\xF0\x9F\x91\xB6"},{"child","\xF0\x9F\x91\xB6"},
-    {"\xD9\xBE\xDB\x8C\xD8\xB3\xDB\x81","\xF0\x9F\x92\xB0"},{"money","\xF0\x9F\x92\xB0"},{"\xD8\xB1\xD9\x88\xD9\xBE\xDB\x92","\xF0\x9F\x92\xB5"},
-    {"\xD8\xAE\xD8\xB1\xDB\x8C\xD8\xAF","\xF0\x9F\x9B\x92"},{"buy","\xF0\x9F\x9B\x92"},{"sell","\xF0\x9F\x92\xB8"},
-    {"\xD8\xAA\xD9\x86\xD8\xAE\xD9\x88\xD8\xA7\xDB\x81","\xF0\x9F\x92\xB0"},{"salary","\xF0\x9F\x92\xB0"},
-    {"\xD9\x85\xD9\x88\xD8\xA8\xD8\xA7\xD8\xA6\xD9\x84","\xF0\x9F\x93\xB1"},{"mobile","\xF0\x9F\x93\xB1"},{"phone","\xF0\x9F\x93\xB1"},
-    {"computer","\xF0\x9F\x92\xBB"},{"laptop","\xF0\x9F\x92\xBB"},{"\xD8\xA7\xD9\x86\xD9\xB9\xD8\xB1\xD9\x86\xDB\x8C\xD9\xB9","\xF0\x9F\x8C\x90"},
-    {"internet","\xF0\x9F\x8C\x90"},{"\xD8\xA7\xDB\x8C\xD9\xBE","\xF0\x9F\x93\xB1"},{"app","\xF0\x9F\x93\xB1"},
-    {"\xDB\x8C\xD9\x88\xD9\xB9\xDB\x8C\xD9\x88\xD8\xA8","\xF0\x9F\x8E\xAC"},{"youtube","\xF0\x9F\x8E\xAC"},{"video","\xF0\x9F\x8E\xAC"},
-    {"telegram","\xF0\x9F\x93\xB2"},{"whatsapp","\xF0\x9F\x92\xAC"},
-    {"\xD8\xB5\xD8\xA8\xD8\xAD","\xF0\x9F\x8C\x85"},{"morning","\xF0\x9F\x8C\x85"},{"\xD8\xB4\xD8\xA7\xD9\x85","\xF0\x9F\x8C\x86"},
-    {"\xD8\xB1\xD8\xA7\xD8\xAA","\xF0\x9F\x8C\x99"},{"night","\xF0\x9F\x8C\x99"},
-    {"\xD8\xA2\xD8\xAC","\xF0\x9F\x93\x85"},{"today","\xF0\x9F\x93\x85"},{"\xDA\xA9\xD9\x84","\xF0\x9F\x93\x85"},{"tomorrow","\xF0\x9F\x93\x85"},
-    {"\xDA\xA9\xDA\xBE\xDB\x8C\xD9\x84","\xE2\x9A\xBD"},{"sport","\xE2\x9A\xBD"},{"\xDA\xA9\xD8\xB1\xDA\xA9\xD9\xB9","\xF0\x9F\x8F\x8F"},
-    {"cricket","\xF0\x9F\x8F\x8F"},{"football","\xE2\x9A\xBD"},{"\xD9\x85\xD8\xB2\xDB\x81","\xF0\x9F\x98\x84"},
-    {"fun","\xF0\x9F\x98\x84"},{"\xD8\xB3\xD9\x88\xD9\x86\xD8\xA7","\xF0\x9F\x98\xB4"},{"sleep","\xF0\x9F\x98\xB4"},
-    {"\xD8\xA2\xD8\xB1\xD8\xA7\xD9\x85","\xF0\x9F\x98\xB4"},{"rest","\xF0\x9F\x98\xB4"},{"\xD8\xAB\xDA\xBE\xDA\xA9\xD8\xA7\xD9\x86","\xF0\x9F\x98\x93"},{"tired","\xF0\x9F\x98\x93"},
-    {"\xD9\x85\xD8\xB0\xD8\xA7\xD9\x82","\xF0\x9F\x98\x82"},{"joke","\xF0\x9F\x98\x82"},{"funny","\xF0\x9F\x98\x82"},{"\xDB\x81\xD9\x86\xD8\xB3\xDB\x8C","\xF0\x9F\x98\x82"},
-    {"romantic","\xF0\x9F\x92\x95"},{"\xD9\x85\xD8\xAD\xD8\xA8\xD9\x88\xD8\xA8","\xF0\x9F\x92\x95"},{"\xD8\xAF\xD9\x84","\xE2\x9D\xA4"},
-    {"\xD8\xB4\xD8\xB9\xD8\xB1","\xF0\x9F\x8C\xB9"},{"\xD8\xB4\xD8\xA7\xD8\xB9\xD8\xB1\xDB\x8C","\xF0\x9F\x8C\xB9"},{"\xD8\xBA\xD8\xB2\xD9\x84","\xF0\x9F\x8C\xB9"},{"poetry","\xF0\x9F\x8C\xB9"},
-    {"\xD8\xAD\xD9\x88\xD8\xB5\xD9\x84\xDB\x81","\xF0\x9F\x92\xAA"},{"motivat","\xF0\x9F\x92\xAA"},{"inspir","\xF0\x9F\x8C\x9F"},
-    {"\xD8\xAE\xD8\xA8\xD8\xB1","\xF0\x9F\x93\xB0"},{"news","\xF0\x9F\x93\xB0"},{"breaking","\xF0\x9F\x93\xB0"},{"flash","\xF0\x9F\x93\xB0"},
-    {"sms","\xF0\x9F\x93\xB1"},{"message","\xF0\x9F\x92\xAC"},{"\xD9\xBE\xDB\x8C\xD8\xBA\xD8\xA7\xD9\x85","\xF0\x9F\x92\xAC"},
-}
-
-local EMOJI_DEFAULT = {
-    "\xF0\x9F\x98\x8A","\xE2\x9C\x85","\xF0\x9F\x8C\x9F","\xF0\x9F\x92\xAA","\xF0\x9F\x8E\xAF","\xF0\x9F\x98\x84","\xF0\x9F\x99\x8F","\xE2\x9C\xA8","\xF0\x9F\x8E\x89","\xE2\x9D\xA4",
-    "\xF0\x9F\x94\xA5","\xF0\x9F\x92\xA1","\xF0\x9F\x91\x8D","\xF0\x9F\x8C\xB8","\xF0\x9F\x91\x8C","\xF0\x9F\x92\xAB","\xF0\x9F\x8E\x8A","\xF0\x9F\x98\x8E","\xF0\x9F\xA4\x9D","\xE2\xAD\x90",
-    "\xF0\x9F\x8C\x88","\xF0\x9F\x8E\xB6","\xF0\x9F\x8F\x85","\xF0\x9F\x8E\x81","\xF0\x9F\x8C\xBA","\xF0\x9F\x92\x8E","\xF0\x9F\x8C\xBB","\xF0\x9F\x8E\xB5","\xF0\x9F\x8F\x86","\xF0\x9F\x98\x83"
-}
-
-local function pickEmoji(sentence, idx)
-    local style = getStr("emojiStyle","smart")
-    if style ~= "smart" and STYLE_POOLS[style] then
-        local pool = STYLE_POOLS[style]
-        return pool[((idx-1) % #pool) + 1]
-    end
-    local i = 1
-    while i <= #EMOJI_MAP do
-        local kw = EMOJI_MAP[i][1]
-        local em = EMOJI_MAP[i][2]
-        if sentence:find(kw, 1, true) then return em end
-        if sentence:lower():find(kw:lower(), 1, true) then return em end
-        i = i + 1
-    end
-    return EMOJI_DEFAULT[((idx-1) % #EMOJI_DEFAULT) + 1]
-end
-
-local function splitIntoSentences(text)
-    if not text or text == "" then return {} end
-    local sentences = {}
-    local cur = ""
-    local i = 1
-    local len = #text
-    while i <= len do
-        local b = text:byte(i)
-        if b == 0xD8 and i < len and text:byte(i+1) == 0x94 then
-            cur = cur .. "\xD8\x94"
-            local t = cur:match("^%s*(.-)%s*$")
-            if t and t ~= "" then sentences[#sentences+1] = t end
-            cur = ""; i = i + 2
-        elseif b == 0x2E or b == 0x21 or b == 0x3F then
-            local nb = (i < len) and text:byte(i+1) or 0
-            if b == 0x2E and nb == 0x2E then
-                cur = cur .. "."; i = i + 1
+function callOpenRouterAPI(apiKey, model, prompt, callback)
+    local url = "https://openrouter.ai/api/v1/chat/completions"
+    local headers = {
+        ["Content-Type"] = "application/json",
+        ["Authorization"] = "Bearer " .. apiKey,
+        ["HTTP-Referer"] = "https://github.com/NomanKhan",
+        ["X-Title"] = "AI Typer by Noman Khan"
+    }
+    local payload = {
+        model = model,
+        messages = {{role = "user", content = prompt}},
+        max_tokens = 4096, -- bahut lambi typing ke liye aur badhaya gaya
+        temperature = 0.7
+    }
+    
+    Http.post(url, cjson.encode(payload), headers, function(status, data)
+        if status == 200 then
+            local ok, decoded = pcall(cjson.decode, data)
+            if ok and decoded and decoded.choices and decoded.choices[1] then
+                local text = decoded.choices[1].message.content
+                if text then
+                    callback(text, nil)
+                else
+                    callback(nil, "Invalid response from OpenRouter")
+                end
             else
-                cur = cur .. string.char(b)
-                local t = cur:match("^%s*(.-)%s*$")
-                if t and t ~= "" then sentences[#sentences+1] = t end
-                cur = ""; i = i + 1
+                callback(nil, "Failed to parse OpenRouter response")
             end
-        elseif b >= 0xF0 then cur = cur..text:sub(i,i+3); i = i+4
-        elseif b >= 0xE0 then cur = cur..text:sub(i,i+2); i = i+3
-        elseif b >= 0xC0 then cur = cur..text:sub(i,i+1); i = i+2
-        else cur = cur..string.char(b); i = i+1
+        elseif status == 401 then
+            callback(nil, "Invalid API key. Please check your OpenRouter API key")
+        elseif status == 429 then
+            callback(nil, "Rate limit exceeded. Please wait or check your quota")
+        else
+            callback(nil, "OpenRouter Error: " .. status)
+        end
+    end)
+end
+
+function testMistralAPI(apiKey, callback)
+    local url = "https://api.mistral.ai/v1/models"
+    local headers = {
+        ["Authorization"] = "Bearer " .. apiKey
+    }
+    
+    Http.get(url, headers, function(status, data)
+        if status == 200 then
+            callback(true, "Mistral API key is valid!")
+        elseif status == 401 then
+            callback(false, "Invalid Mistral API key")
+        else
+            callback(false, "Mistral Error: " .. status)
+        end
+    end)
+end
+
+function callMistralAPI(apiKey, model, prompt, callback)
+    local url = "https://api.mistral.ai/v1/chat/completions"
+    local headers = {
+        ["Content-Type"] = "application/json",
+        ["Authorization"] = "Bearer " .. apiKey
+    }
+    local payload = {
+        model = model,
+        messages = {{role = "user", content = prompt}},
+        max_tokens = 4096, -- bahut lambi typing ke liye aur badhaya gaya
+        temperature = 0.7
+    }
+    
+    Http.post(url, cjson.encode(payload), headers, function(status, data)
+        if status == 200 then
+            local ok, decoded = pcall(cjson.decode, data)
+            if ok and decoded and decoded.choices and decoded.choices[1] then
+                local text = decoded.choices[1].message.content
+                if text then
+                    callback(text, nil)
+                else
+                    callback(nil, "Invalid response from Mistral")
+                end
+            else
+                callback(nil, "Failed to parse Mistral response")
+            end
+        elseif status == 401 then
+            callback(nil, "Invalid API key. Please check your Mistral API key")
+        elseif status == 429 then
+            callback(nil, "Rate limit exceeded. Please wait or check your quota")
+        else
+            callback(nil, "Mistral Error: " .. status)
+        end
+    end)
+end
+
+-- ==================== NEW: GUARANTEED emoji system (AI par depend nahi karta) ====================
+-- Pehle sirf AI ko emoji lagane ko "bola" jata tha — agar model na maane to emoji
+-- gayab reh jati thi. Ab yeh code khud check karta hai: agar kisi sentence mein
+-- pehle se emoji nahi hai, to yeh khud us sentence ke ALFAAZ (words) ke hisaab se
+-- sahi emoji dhoond kar laga deta hai. Guaranteed — chahe AI kuch bhi kare.
+local KEYWORD_EMOJI = {
+    -- Emotions
+    ["happy"]="😊", ["khush"]="😊", ["khushi"]="😊", ["glad"]="😊",
+    ["sad"]="😢", ["udaas"]="😢", ["dukh"]="😢", ["dukhi"]="😢",
+    ["love"]="❤️", ["pyaar"]="❤️", ["pyar"]="❤️", ["mohabbat"]="❤️",
+    ["angry"]="😠", ["gussa"]="😠", ["naraz"]="😠",
+    ["laugh"]="😄", ["hasi"]="😄", ["funny"]="😄", ["mazak"]="😄",
+    ["cry"]="😭", ["rona"]="😭",
+    ["scared"]="😨", ["darr"]="😨", ["dar"]="😨",
+    ["surprised"]="😲", ["hairan"]="😲",
+    -- Greetings / social
+    ["thanks"]="🙏", ["thank"]="🙏", ["shukriya"]="🙏",
+    ["sorry"]="🙏", ["maazrat"]="🙏", ["maafi"]="🙏",
+    ["congratulations"]="🎉", ["congrats"]="🎉", ["mubarak"]="🎉",
+    ["party"]="🎉", ["celebration"]="🎉", ["jashn"]="🎉",
+    ["birthday"]="🎂", ["salgirah"]="🎂",
+    ["welcome"]="🤗", ["khushamdeed"]="🤗",
+    ["hello"]="👋", ["salam"]="👋", ["assalam"]="👋", ["bye"]="👋", ["khuda"]="👋",
+    -- Time / weather
+    ["morning"]="🌞", ["subah"]="🌞",
+    ["night"]="🌙", ["raat"]="🌙",
+    ["evening"]="🌆", ["shaam"]="🌆",
+    ["rain"]="🌧️", ["barish"]="🌧️",
+    ["hot"]="🔥", ["garmi"]="🔥",
+    ["cold"]="❄️", ["sardi"]="❄️",
+    ["sun"]="☀️", ["dhoop"]="☀️",
+    -- Daily life
+    ["food"]="🍽️", ["khana"]="🍽️", ["hungry"]="🍽️", ["bhook"]="🍽️",
+    ["money"]="💰", ["paisa"]="💰", ["paise"]="💰",
+    ["work"]="💼", ["kaam"]="💼", ["job"]="💼",
+    ["school"]="🏫", ["college"]="🎓", ["university"]="🎓",
+    ["study"]="📚", ["parhai"]="📚", ["parhna"]="📚",
+    ["home"]="🏠", ["ghar"]="🏠",
+    ["friend"]="🤝", ["dost"]="🤝",
+    ["family"]="👨‍👩‍👧‍👦", ["khandan"]="👨‍👩‍👧‍👦",
+    ["time"]="⏰", ["waqt"]="⏰",
+    ["phone"]="📱", ["call"]="📞",
+    ["car"]="🚗", ["gaari"]="🚗", ["gari"]="🚗",
+    ["book"]="📖", ["kitaab"]="📖", ["kitab"]="📖",
+    ["music"]="🎵", ["gaana"]="🎵",
+    ["travel"]="✈️", ["safar"]="✈️",
+    -- Religious (context: Tajweed/Islamic use)
+    ["allah"]="🤲", ["alhamdulillah"]="🤲", ["mashallah"]="✨", ["mashaallah"]="✨",
+    ["inshallah"]="🤲", ["inshaallah"]="🤲", ["jazakallah"]="🙏",
+    ["ameen"]="🤲", ["namaz"]="🕌", ["dua"]="🤲",
+    -- Agreement / status
+    ["ok"]="👍", ["okay"]="👍", ["good"]="👍", ["acha"]="👍", ["achi"]="👍", ["theek"]="👍",
+    ["problem"]="⚠️", ["masla"]="⚠️", ["issue"]="⚠️",
+    ["yes"]="✅", ["haan"]="✅",
+    ["no"]="❌", ["nahi"]="❌",
+}
+
+-- Byte-level heuristic: agar text mein pehle se emoji character mojood hai
+function textContainsEmoji(text)
+    if not text or text == "" then return false end
+    for i = 1, #text do
+        local b = text:byte(i)
+        if b and b >= 240 then -- 0xF0+ : zyada tar modern emoji (4-byte UTF-8)
+            return true
         end
     end
-    local t = cur:match("^%s*(.-)%s*$")
-    if t and t ~= "" then sentences[#sentences+1] = t end
-    if #sentences == 0 and text:match("^%s*(.-)%s*$") ~= "" then
-        sentences[1] = text:match("^%s*(.-)%s*$")
+    -- Symbol emoji jo 3-byte UTF-8 hain (☀ ❤ ✅ ❌ ⚠ ✨ ✋ waghaira, lead byte 0xE2)
+    if text:find("\226\152") or text:find("\226\156") or text:find("\226\157")
+       or text:find("\226\154") or text:find("\226\159") or text:find("\226\156\168") then
+        return true
+    end
+    return false
+end
+
+-- Sentence ke alfaaz check karke sahi emoji dhoondta hai; na mile to
+-- punctuation ke hisab se ek acha default deta hai (kabhi khaali nahi jata).
+function pickEmojiForSentence(sentence)
+    if sentence and sentence ~= "" then
+        for word in sentence:gmatch("%a+") do
+            local match = KEYWORD_EMOJI[word:lower()]
+            if match then
+                return match
+            end
+        end
+    end
+    if sentence:find("!%s*$") then return "😃" end
+    if sentence:find("%?%s*$") then return "🤔" end
+    return "🙂"
+end
+
+function splitIntoSentences(text)
+    local sentences = {}
+    local pos = 1
+    local len = #text
+    while pos <= len do
+        local s, e = text:find("[^.!?]*[.!?]+", pos)
+        if not s then break end
+        table.insert(sentences, text:sub(s, e))
+        pos = e + 1
+    end
+    -- Baaki bacha hua text jisme punctuation na ho (aakhri adhoora jumla)
+    local consumed = 0
+    for _, s in ipairs(sentences) do
+        consumed = consumed + #s
+    end
+    local remainder = text:sub(pos)
+    if remainder and remainder:match("%S") then
+        table.insert(sentences, remainder)
+    end
+    -- Trim spaces
+    for i, s in ipairs(sentences) do
+        sentences[i] = s:match("^%s*(.-)%s*$")
     end
     return sentences
 end
 
-local function addSmartEmoji(text)
+function applyAfterSentenceFormat(text, styleIndex, emojiEnabled)
     if not text or text == "" then return text end
+
     local sentences = splitIntoSentences(text)
     if #sentences == 0 then return text end
-    local parts = {}
-    local i = 1
-    while i <= #sentences do
-        parts[#parts+1] = sentences[i] .. " " .. pickEmoji(sentences[i], i)
-        i = i + 1
-    end
-    return table.concat(parts, "  ")
-end
 
--- ==================== DICTIONARY ====================
-local dictFile    = os.getenv("EXTERNAL_STORAGE") .. "/csrmultityper_v40_dict.dat"
-local changeTable = {}
-
-local function loadDictionary()
-    local f = io.open(dictFile, "r")
-    if f then
-        local c = f:read("*all"); f:close()
-        if c and c ~= "" then
-            local ok, r = pcall(cjson.decode, c)
-            if ok and type(r) == "table" then changeTable = r end
-        end
-    end
-end
-
-local function saveDictionary()
-    local f = io.open(dictFile, "w")
-    if f then f:write(cjson.encode(changeTable)); f:close() end
-end
-
-local function applyDictionary(text)
-    for w, c in pairs(changeTable) do
-        local pat = "(%f[%a])" .. w:gsub("(%W)","%%%1") .. "(%f[%W])"
-        text = text:gsub(pat, function(a,b) return a..c..b end)
-        if text:lower() == w:lower() then text = c end
-    end
-    return text
-end
-
--- ==================== CLEAN RESPONSE ====================
-local function cleanResponse(txt)
-    if not txt then return "" end
-    -- Remove leading/trailing whitespace
-    txt = txt:gsub("^[\n\r%s]+", ""):gsub("[\n\r%s]+$", "")
-    -- Remove markdown bold/italic
-    txt = txt:gsub("%*%*(.-)%*%*", "%1")
-    txt = txt:gsub("%*(.-)%*",     "%1")
-    txt = txt:gsub("__(.-)__",     "%1")
-    txt = txt:gsub("_(.-)_",       "%1")
-    -- Remove code blocks
-    txt = txt:gsub("```.-```", "")
-    txt = txt:gsub("`(.-)`",   "%1")
-    -- Remove common AI preamble phrases (English)
-    txt = txt:gsub("^[Hh]ere is the [^:]+:%s*", "")
-    txt = txt:gsub("^[Hh]ere's the [^:]+:%s*", "")
-    txt = txt:gsub("^[Ss]ure[,!]?%s*[Hh]ere[^:]*:%s*", "")
-    txt = txt:gsub("^[Cc]ertainly[,!]?%s*[Hh]ere[^:]*:%s*", "")
-    txt = txt:gsub("^[Oo]f course[,!]?%s*[Hh]ere[^:]*:%s*", "")
-    txt = txt:gsub("^[Aa]bsolutely[,!]?%s*[Hh]ere[^:]*:%s*", "")
-    -- Remove common AI preamble (Urdu/Hindi)
-    txt = txt:gsub("^[Bb]ilkul[,!]?%s*", "")
-    txt = txt:gsub("^[Zz]aroor[,!]?%s*", "")
-    txt = txt:gsub("^[Hh]a[nN][,!]?%s*[Yy]eh raha[^:]*:%s*", "")
-    -- Remove trailing notes/disclaimers
-    txt = txt:gsub("%s*%(Note:[^%)]*%)%s*$", "")
-    txt = txt:gsub("%s*%[Note:[^%]]*%]%s*$", "")
-    txt = txt:gsub("%s*Note:%s*[^\n]*$", "")
-    txt = txt:gsub("%s*[Pp][Ss][%.:]?%s*[^\n]*$", "")
-    -- Final trim
-    txt = txt:gsub("^[\n\r%s]+", ""):gsub("[\n\r%s]+$", "")
-    return txt
-end
-
--- ==================== STRICT SYSTEM PROMPT ====================
-local SYSTEM_PROMPT = "You are a precise multilingual text transformation assistant.\n" ..
-"CRITICAL RULES - FOLLOW EXACTLY:\n" ..
-"1. Return ONLY the transformed/corrected text.\n" ..
-"2. NO preamble. Do NOT start with: Sure, Here is, Certainly, Bilkul, Zaroor, Han yeh raha, or ANY introduction.\n" ..
-"3. NO explanations, NO notes, NO disclaimers at end.\n" ..
-"4. NO markdown: no **, no *, no __, no backticks.\n" ..
-"5. NO extra commentary. Output = transformed text ONLY.\n" ..
-"6. If input is short, output must also be concise. Do NOT add padding or extra sentences."
-
--- ==================== PROMPT ENGINE (11 modes) ====================
-local function getModePrompt(text, mode, targetLang)
-    local fmt = getFormatInstruction(getStr("outputFormat","normal"))
-    if mode == "auto_fix" then
-        return "Fix ALL spelling mistakes. Add proper punctuation. Fix grammar. Keep original language. Do NOT translate. Do NOT add extra sentences.\nText: " .. text .. fmt
-    elseif mode == "conversion" then
-        return "Mixed Script conversion ONLY.\nKeep Urdu/Hindi sentence structure.\nConvert names, cities, countries, brands, tech terms to English (Latin) letters ONLY.\nAll other words stay in Arabic script.\nDo NOT translate.\nConvert:\n" .. text .. fmt
-    elseif mode == "intelligent" then
-        return "Enhance this text: make it more natural, fix grammar, improve vocabulary. Keep original language. Return enhanced text only.\n\n" .. text .. fmt
-    elseif mode == "professional" then
-        return "Rewrite in formal professional style. Keep original language and core meaning. Return rewritten text only.\n\n" .. text .. fmt
-    elseif mode == "translation" then
-        local lang = targetLang or "English"
-        return "Translate accurately into " .. lang .. ". Keep emotional tone. Return ONLY the translated text in " .. lang .. ".\n\nText: " .. text .. fmt
-    elseif mode == "funny" then
-        return "Rewrite in funny witty comedy style. Keep original topic and language. Return funny text only.\n\n" .. text .. fmt
-    elseif mode == "romantic" then
-        return "Rewrite in warm romantic poetic style. Keep original language. Return romantic text only.\n\n" .. text .. fmt
-    elseif mode == "shayari" then
-        return "Write 2-4 lines of beautiful Urdu Shayari on this theme. Classical Urdu only. Return shayari lines only.\n\nTheme: " .. text .. fmt
-    elseif mode == "motivational" then
-        return "Rewrite as powerful motivational message. Keep original language. Return motivational text only.\n\n" .. text .. fmt
-    elseif mode == "breaking_news" then
-        return "Rewrite as breaking news. Start with BREAKING: or ALERT:. Urgent dramatic style. Keep original language. Return news text only.\n\n" .. text .. fmt
-    elseif mode == "sms_style" then
-        return "Convert to short SMS/WhatsApp style. Max 2 sentences. Casual friendly tone. Keep original language. Return short message only.\n\n" .. text .. fmt
-    end
-    return text
-end
-
--- ==================== GROQ API ====================
-local function callGroq(prompt, callback)
-    local key   = getStr("groq_key")
-    local model = getStr("groq_model","llama-3.3-70b-versatile")
-    if key == "" then callback(nil,"Groq: No API key. Open Settings and add your key."); return end
-    local url  = "https://api.groq.com/openai/v1/chat/completions"
-    local hdrs = {
-        ["Content-Type"]  = "application/json",
-        ["Authorization"] = "Bearer " .. key
-    }
-    local ok0, body = pcall(cjson.encode, {
-        model    = model,
-        messages = {
-            {role="system", content=SYSTEM_PROMPT},
-            {role="user",   content=prompt}
-        },
-        max_tokens  = 512,
-        temperature = 0.1,
-        stream      = false
-    })
-    if not ok0 then callback(nil,"Groq: JSON encode error."); return end
-    httpPostAsync(url, body, hdrs, function(status, data)
-        if status == 200 and data and data ~= "" then
-            local ok, d = pcall(cjson.decode, data)
-            if ok and d and d.choices and d.choices[1] and d.choices[1].message then
-                local txt = cleanResponse(d.choices[1].message.content)
-                if txt ~= "" then callback(txt, nil)
-                else callback(nil,"Groq: Empty response. Try again.") end
-            else
-                local ok2, d2 = pcall(cjson.decode, data)
-                if ok2 and d2 and d2.error then
-                    callback(nil,"Groq: " .. tostring(d2.error.message or d2.error))
-                else callback(nil,"Groq: Parse error. Try again.") end
+    -- GUARANTEED emoji: agar emoji ON hai aur kisi sentence mein pehle se
+    -- emoji nahi hai, to yahan khud laga do — AI ke bharose nahi rehna.
+    if emojiEnabled then
+        for i, s in ipairs(sentences) do
+            if s ~= "" and not textContainsEmoji(s) then
+                sentences[i] = s .. " " .. pickEmojiForSentence(s)
             end
-        elseif status == 401 then callback(nil,"Groq: Invalid API key.")
-        elseif status == 429 then callback(nil,"Groq: Rate limit. Wait and try again.")
-        elseif status == 400 then callback(nil,"Groq: Bad request. Try different model.")
-        elseif status == 503 then callback(nil,"Groq: Service unavailable. Try again.")
-        elseif status == 0   then callback(nil,"Groq: No internet connection.")
-        else callback(nil,"Groq error: HTTP " .. tostring(status)) end
-    end)
-end
-
--- ==================== PROCESS WITH AI ====================
-local function processWithAI(rawText, callback)
-    local mode       = getStr("active_mode","auto_fix")
-    local withEmoji  = getBool("emojiEnabled")
-    local targetLang = getStr("targetLang","English")
-
-    if getStr("groq_key") == "" then
-        service.speak("No API key. Open Settings and add your Groq key.")
-        callback(rawText)
-        return
-    end
-
-    service.asyncSpeak("Processing...")
-    local prompt = getModePrompt(rawText, mode, targetLang)
-
-    local function done(result, err)
-        if err then
-            service.speak(err)
-            callback(rawText)
-            return
         end
-        local finalText = cleanResponse(result or rawText)
-        if finalText == "" then finalText = rawText end
-        if withEmoji then finalText = addSmartEmoji(finalText) end
-        callback(finalText)
     end
 
-    callGroq(prompt, done)
+    local separator = " "
+    if styleIndex == 3 or styleIndex == 4 then
+        separator = "\n"
+    end
+
+    return table.concat(sentences, separator)
 end
 
--- ==================== API KEY CHECK ====================
-local function hasActiveApiKey()
-    return getStr("groq_key") ~= ""
-end
-
--- ==================== FORWARD DECLARATION ====================
-local showMainDialog
-
--- ==================== VOICE RECOGNITION ====================
-local function startVoiceRecognition()
-    if not hasActiveApiKey() then
-        service.speak("API key required. Open Settings and add your Groq AI key.")
+function processWithAI(spokenText, callback)
+    local activeProvider = getActiveProvider()
+    local apiKey = ""
+    local model = ""
+    
+    if activeProvider == "Mistral AI" then
+        apiKey = getMistralApiKey()
+        model = getMistralModel()
+    else
+        apiKey = getOpenRouterApiKey()
+        model = getOpenRouterModel()
+    end
+    
+    if not apiKey or apiKey == "" then
+        service.speak("Please set " .. activeProvider .. " API key in AI Engine settings first")
+        callback(spokenText)
         return
     end
-    local et = service.getEditText()
-    if not et then
-        service.speak("Please tap on a text field first, then activate the plugin.")
-        return
+    
+    local emojiEnabled = isEmojiEnabled()
+    local writingMode = getWritingMode()
+    local modeInstruction = WRITING_MODE_INSTRUCTIONS[writingMode] or WRITING_MODE_INSTRUCTIONS["Normal"]
+    local afterSentenceStyle = getAfterSentenceStyleIndex()
+    local typingLanguage = getTypingLanguage()
+    local langInstruction = TYPING_LANGUAGE_INSTRUCTIONS[typingLanguage] or TYPING_LANGUAGE_INSTRUCTIONS["Auto (Jaisa Bola Jaye)"]
+    
+    -- Translation feature hata di gayi hai. Ab yeh hamesha dictation-typist mode mein
+    -- kaam karta hai: jo bola gaya wahi likhna hai, sirf spelling/punctuation theek karni hai,
+    -- meaning ya wording khud se badalni nahi hai (jab tak Writing Mode khud style badalne ko na kahe).
+    local prompt = "You are a highly accurate professional dictation typist. Fix ONLY spelling and punctuation mistakes in the following spoken text. " ..
+        "Do NOT translate it into another language. Do NOT summarize or shorten unless explicitly told to. Do NOT invent or add information that was not spoken. Preserve the original meaning exactly.\n"
+    
+    prompt = prompt .. "LANGUAGE INSTRUCTION: " .. langInstruction .. "\n"
+    prompt = prompt .. "STYLE INSTRUCTION: " .. modeInstruction .. "\n"
+    
+    -- ==================== FIX: Emoji toggle ab independent hai After-Sentence spinner se ====================
+    -- Pehle emoji sirf tab lagti thi jab spinner "Emoji" par set ho — is wajah se
+    -- "Emoji: ON" button ON karne ke bawajood emoji nahi lagti thi. Ab "Emoji: ON"
+    -- akela hi kaafi hai; spinner sirf sentences ke darmiyan space ya new-line
+    -- (separator) control karta hai.
+    if emojiEnabled then
+        prompt = prompt .. "STRICT INSTRUCTION (this applies EVEN IN the strictest professional mode — it does not count as changing the wording): This text may contain multiple sentences separated by '.', '!' or '?'. " ..
+            "You MUST add exactly one highly relevant emoji immediately after the punctuation mark of EVERY single sentence, not only at the end of the whole text. " ..
+            "Do not skip any sentence. Example: 'I am happy. The weather is nice.' becomes 'I am happy. 😊 The weather is nice. ☀️'\n\n"
+    else
+        prompt = prompt .. "STRICT INSTRUCTION: Do NOT add any emojis whatsoever. Only output text.\n\n"
     end
-    vibratePhone(250)
-    local langCode = getStr("selectedLangCode","ur-PK")
-    local sr = SpeechRecognizer.createSpeechRecognizer(context)
-    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, langCode)
-    service.asyncSpeak("Listening...")
-    sr.setRecognitionListener(RecognitionListener{
-        onResults = function(results)
-            local arr = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if arr and arr.size() > 0 then
-                local raw = arr.get(0)
-                raw = applyDictionary(raw)
-                raw = raw:gsub("%s+([%.,%!%?;:])","%1")
-                if not raw:match("[%.!%?]%s*$") then raw = raw .. ". " end
-                processWithAI(raw, function(final)
-                    service.insertText(et, final)
-                    service.speak(final)
-                end)
+    
+    prompt = prompt .. "Now produce ONLY the final corrected text — no preamble, no explanation, no quotation marks around it.\n\n"
+    
+    prompt = prompt .. "Text to process: " .. spokenText
+    
+    if activeProvider == "Mistral AI" then
+        callMistralAPI(apiKey, model, prompt, function(result, error)
+            if error then
+                service.speak(error)
+                callback(spokenText)
             else
-                service.asyncSpeak("No speech detected. Please try again.")
-            end
-            sr.destroy()
-        end,
-        onError = function(errCode)
-            service.asyncSpeak("Could not understand. Please try again.")
-            sr.destroy()
-        end
-    })
-    sr.startListening(intent)
-end
-
--- ==================== LANGUAGE DIALOG ====================
-local function showLanguageDialog(onBack)
-    local dlg = LuaDialog(service)
-    dlg.setTitle("Select Voice Language")
-    local lv = ListView(context)
-    lv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, langNames))
-    lv.onItemClick = function(p,v,pos,id)
-        saveStr("selectedLang",     langNames[pos+1])
-        saveStr("selectedLangCode", langCodes[pos+1])
-        service.speak("Language: " .. langNames[pos+1])
-        dlg.dismiss()
-        if onBack then onBack() end
-    end
-    dlg.setView(lv); dlg.show()
-end
-
--- ==================== MODE DIALOG ====================
-local function showModeDialog(onBack)
-    local dlg = LuaDialog(service)
-    dlg.setTitle("AI Processing Mode")
-    local ml = LinearLayout(service)
-    ml.setOrientation(1); ml.setPadding(20,20,20,20)
-
-    local emojiOn  = getBool("emojiEnabled")
-    local emojiBtn = Button(service)
-    emojiBtn.setText(emojiOn and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
-    emojiBtn.setBackgroundColor(emojiOn and 0xFF1B5E20 or 0xFF455A64)
-    emojiBtn.setTextColor(0xFFFFFFFF); emojiBtn.setTextSize(14)
-    local ep = LinearLayout.LayoutParams(-1,-2); ep.setMargins(0,0,0,5); emojiBtn.setLayoutParams(ep)
-    ml.addView(emojiBtn)
-    emojiBtn.setOnClickListener(function()
-        local ns = not getBool("emojiEnabled"); saveBool("emojiEnabled",ns)
-        emojiBtn.setText(ns and "[ON]  Smart Emoji After Each Sentence" or "[OFF] Smart Emoji After Each Sentence")
-        emojiBtn.setBackgroundColor(ns and 0xFF1B5E20 or 0xFF455A64)
-        service.speak("Emoji " .. (ns and "enabled" or "disabled"))
-    end)
-
-    local esLbl = TextView(service)
-    esLbl.setText("Emoji Style:"); esLbl.setTextSize(12); esLbl.setTextColor(0xFF888888)
-    local eslp = LinearLayout.LayoutParams(-1,-2); eslp.setMargins(0,8,0,4); esLbl.setLayoutParams(eslp)
-    ml.addView(esLbl)
-    local emojiStyleSpin = Spinner(service)
-    local esa = ArrayAdapter(service, android.R.layout.simple_spinner_item, EMOJI_STYLES)
-    esa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    emojiStyleSpin.setAdapter(esa)
-    local cEs = getStr("emojiStyle","smart")
-    local esi = 1
-    while esi <= #EMOJI_STYLE_KEYS do
-        if EMOJI_STYLE_KEYS[esi] == cEs then emojiStyleSpin.setSelection(esi-1); break end
-        esi = esi + 1
-    end
-    local essp = LinearLayout.LayoutParams(-1,-2); essp.setMargins(0,0,0,10); emojiStyleSpin.setLayoutParams(essp)
-    ml.addView(emojiStyleSpin)
-    emojiStyleSpin.onItemSelected = function(parent, view, pos, id)
-        local chosen = EMOJI_STYLE_KEYS[pos+1]
-        if chosen then saveStr("emojiStyle", chosen) end
-    end
-
-    local fmtLbl = TextView(service)
-    fmtLbl.setText("Output Format:"); fmtLbl.setTextSize(12); fmtLbl.setTextColor(0xFF888888)
-    local fmlp = LinearLayout.LayoutParams(-1,-2); fmlp.setMargins(0,0,0,4); fmtLbl.setLayoutParams(fmlp)
-    ml.addView(fmtLbl)
-    local formatSpin = Spinner(service)
-    local fsa = ArrayAdapter(service, android.R.layout.simple_spinner_item, FORMAT_STYLES)
-    fsa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    formatSpin.setAdapter(fsa)
-    local cFmt = getStr("outputFormat","normal")
-    local fi = 1
-    while fi <= #FORMAT_KEYS do
-        if FORMAT_KEYS[fi] == cFmt then formatSpin.setSelection(fi-1); break end
-        fi = fi + 1
-    end
-    local fssp = LinearLayout.LayoutParams(-1,-2); fssp.setMargins(0,0,0,5); formatSpin.setLayoutParams(fssp)
-    ml.addView(formatSpin)
-    local saveFmtBtn = Button(service)
-    saveFmtBtn.setText("Save Format"); saveFmtBtn.setTextSize(12)
-    saveFmtBtn.setBackgroundColor(0xFF1565C0); saveFmtBtn.setTextColor(0xFFFFFFFF)
-    local sfp = LinearLayout.LayoutParams(-1,-2); sfp.setMargins(0,0,0,18); saveFmtBtn.setLayoutParams(sfp)
-    ml.addView(saveFmtBtn)
-    saveFmtBtn.setOnClickListener(function()
-        local pos = formatSpin.getSelectedItemPosition()
-        local chosen = FORMAT_KEYS[pos+1]
-        if chosen then
-            saveStr("outputFormat", chosen)
-            service.speak("Output format: " .. FORMAT_STYLES[pos+1])
-        end
-    end)
-
-    local lbl = TextView(service)
-    lbl.setText("Select AI Processing Mode:")
-    lbl.setTextSize(14); lbl.setTextColor(0xFFCCCCCC); lbl.setPadding(0,0,0,10)
-    ml.addView(lbl)
-
-    local curMode = getStr("active_mode","auto_fix")
-    local i = 1
-    while i <= #MODES do
-        local modeName = MODES[i]
-        local mKey     = MODE_KEYS[i]
-        local isActive = (curMode == mKey)
-        local btn = Button(service)
-        btn.setText((isActive and ">> " or "   ") .. modeName .. (isActive and " <<" or ""))
-        btn.setBackgroundColor(isActive and MODE_COLORS[i] or 0xFF263238)
-        btn.setTextColor(0xFFFFFFFF); btn.setTextSize(14)
-        local bp = LinearLayout.LayoutParams(-1,-2); bp.setMargins(0,0,0,3); btn.setLayoutParams(bp)
-        ml.addView(btn)
-        local descTV = TextView(service)
-        descTV.setText("     " .. MODE_DESC[i]); descTV.setTextSize(11)
-        descTV.setTextColor(isActive and 0xFFFFCC00 or 0xFF777777)
-        local dp = LinearLayout.LayoutParams(-1,-2); dp.setMargins(0,0,0,10); descTV.setLayoutParams(dp)
-        ml.addView(descTV)
-        local ck = mKey; local cn = modeName
-        btn.setOnClickListener(function()
-            saveStr("active_mode", ck)
-            service.speak("Mode: " .. cn)
-            dlg.dismiss()
-            if ck == "translation" then
-                local tDlg = LuaDialog(service)
-                tDlg.setTitle("Select Translation Language")
-                local tlv = ListView(context)
-                tlv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, transLangs))
-                tlv.onItemClick = function(tp,tv2,tpos,tid)
-                    saveStr("targetLang", transLangs[tpos+1])
-                    service.speak("Translate to: " .. transLangs[tpos+1])
-                    tDlg.dismiss()
-                    if onBack then onBack() end
-                end
-                tDlg.setView(tlv); tDlg.show()
-            else
-                if onBack then onBack() end
+                callback(result)
             end
         end)
-        i = i + 1
-    end
-
-    local backBtn = Button(service)
-    backBtn.setText("Go Back"); backBtn.setTextSize(14)
-    backBtn.setBackgroundColor(0xFF37474F); backBtn.setTextColor(0xFFFFFFFF)
-    local bbp = LinearLayout.LayoutParams(-1,-2); bbp.setMargins(0,18,0,0); backBtn.setLayoutParams(bbp)
-    ml.addView(backBtn)
-    backBtn.setOnClickListener(function()
-        dlg.dismiss()
-        if onBack then onBack() end
-    end)
-
-    local sv = ScrollView(service); sv.addView(ml)
-    dlg.setView(sv); dlg.show()
-end
-
--- ==================== GROQ SETTINGS DIALOG ====================
-local function showSettingsDialog(onBack)
-    local dlg = LuaDialog(service)
-    dlg.setTitle("Groq AI Settings")
-    dlg.setCancelable(true)
-    local ml = LinearLayout(service)
-    ml.setOrientation(1); ml.setPadding(25,20,25,20)
-
-    local function addSL(txt)
-        local tv = TextView(service)
-        tv.setText(txt); tv.setTextSize(13); tv.setTextColor(0xFFFF9800)
-        tv.setPadding(0,0,0,5); ml.addView(tv)
-    end
-
-    local noteTV = TextView(service)
-    noteTV.setText("Groq AI - Free, Fast and Reliable\nGet free key: console.groq.com/keys")
-    noteTV.setTextSize(12); noteTV.setTextColor(0xFF4CAF50); noteTV.setPadding(0,0,0,15)
-    ml.addView(noteTV)
-
-    addSL("Step 1 - Enter Groq API Key")
-    local keyInput = EditText(service)
-    keyInput.setTextSize(14); keyInput.setPadding(15,12,15,12)
-    keyInput.setBackgroundColor(0xFF1A1A1A); keyInput.setTextColor(0xFFFFFFFF)
-    keyInput.setHint("Enter Groq API Key (console.groq.com)")
-    keyInput.setHintTextColor(0xFF555555); keyInput.setInputType(129)
-    keyInput.setText(getStr("groq_key"))
-    local kp = LinearLayout.LayoutParams(-1,-2); kp.setMargins(0,0,0,10); keyInput.setLayoutParams(kp)
-    ml.addView(keyInput)
-
-    addSL("Step 2 - Test API Key")
-    local testBtn = Button(service)
-    testBtn.setText("TEST API KEY"); testBtn.setTextSize(13)
-    testBtn.setBackgroundColor(0xFFFF6F00); testBtn.setTextColor(0xFFFFFFFF)
-    local tbp = LinearLayout.LayoutParams(-1,-2); tbp.setMargins(0,0,0,18); testBtn.setLayoutParams(tbp)
-    ml.addView(testBtn)
-
-    addSL("Step 3 - Select Model")
-    local modelSpinner = Spinner(service)
-    local ma = ArrayAdapter(service, android.R.layout.simple_spinner_item, GROQ_MODELS)
-    ma.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    modelSpinner.setAdapter(ma)
-    local saved = getStr("groq_model","llama-3.3-70b-versatile")
-    local mi = 1
-    while mi <= #GROQ_MODELS do
-        if GROQ_MODELS[mi] == saved then modelSpinner.setSelection(mi-1); break end
-        mi = mi + 1
-    end
-    local msp = LinearLayout.LayoutParams(-1,-2); msp.setMargins(0,0,0,18); modelSpinner.setLayoutParams(msp)
-    ml.addView(modelSpinner)
-
-    local statusTV = TextView(service)
-    statusTV.setTextSize(12); statusTV.setPadding(0,0,0,10)
-    local isSet = getStr("groq_key") ~= ""
-    statusTV.setText(isSet and "[ACTIVE] Groq AI key is set and ready." or "[NOT SET] Please enter your Groq API key.")
-    statusTV.setTextColor(isSet and 0xFF4CAF50 or 0xFFF44336)
-    ml.addView(statusTV)
-
-    addSL("Step 4 - Save Settings")
-    local saveBtn = Button(service)
-    saveBtn.setText("SAVE SETTINGS"); saveBtn.setTextSize(13)
-    saveBtn.setBackgroundColor(0xFF1B5E20); saveBtn.setTextColor(0xFFFFFFFF)
-    local sbp = LinearLayout.LayoutParams(-1,-2); sbp.setMargins(0,0,0,8); saveBtn.setLayoutParams(sbp)
-    ml.addView(saveBtn)
-
-    local backBtn = Button(service)
-    backBtn.setText("Go Back"); backBtn.setTextSize(13)
-    backBtn.setBackgroundColor(0xFF37474F); backBtn.setTextColor(0xFFFFFFFF)
-    local bbp2 = LinearLayout.LayoutParams(-1,-2); backBtn.setLayoutParams(bbp2)
-    ml.addView(backBtn)
-
-    testBtn.setOnClickListener(function()
-        local key = keyInput.getText().toString()
-        if key == "" then service.speak("Please enter API key first."); return end
-        testBtn.setText("Testing... Please wait"); testBtn.setEnabled(false)
-        httpGetAsync(
-            "https://api.groq.com/openai/v1/models",
-            {["Authorization"] = "Bearer " .. key},
-            function(status, data)
-                testBtn.setText("TEST API KEY"); testBtn.setEnabled(true)
-                if status == 200 or status == 429 then
-                    service.speak("SUCCESS! Groq API key is valid.")
-                    statusTV.setText("[VALID] Key tested successfully.")
-                    statusTV.setTextColor(0xFF4CAF50)
-                elseif status == 401 or status == 403 then
-                    service.speak("FAILED! Invalid API key.")
-                    statusTV.setText("[INVALID] Please enter a correct key.")
-                    statusTV.setTextColor(0xFFF44336)
-                elseif status == 0 then
-                    service.speak("No response. Check internet connection.")
-                else
-                    service.speak("Error " .. tostring(status) .. ". Try again.")
-                end
+    else
+        callOpenRouterAPI(apiKey, model, prompt, function(result, error)
+            if error then
+                service.speak(error)
+                callback(spokenText)
+            else
+                callback(result)
             end
-        )
-    end)
-
-    saveBtn.setOnClickListener(function()
-        local key = keyInput.getText().toString()
-        local sel = modelSpinner.getSelectedItemPosition()
-        if key ~= "" then saveStr("groq_key", key) end
-        if sel >= 0 then saveStr("groq_model", GROQ_MODELS[sel+1]) end
-        statusTV.setText("[ACTIVE] Groq AI key is set and ready.")
-        statusTV.setTextColor(0xFF4CAF50)
-        service.speak("Saved! Model: " .. GROQ_MODELS[sel+1])
-    end)
-
-    backBtn.setOnClickListener(function()
-        dlg.dismiss()
-        if onBack then onBack() end
-    end)
-
-    local sv = ScrollView(service); sv.addView(ml)
-    dlg.setView(sv); dlg.show()
+        end)
+    end
 end
 
--- ==================== DICTIONARY DIALOGS ====================
-local function showDictionaryAddDialog()
+function showTypingLanguageDialog(mainDlg)
     local dlg = LuaDialog(service)
-    dlg.setTitle("Add Word to Dictionary")
-    local layout = {
-        LinearLayout; orientation="vertical"; padding="20dp";
-        {TextView; text="Teach plugin to correct words it mishears."; textSize="12sp"; textColor="#AAAAAA"; layout_width="fill"; layout_marginBottom="12dp"};
-        {EditText; id="wrongWord";   hint="Wrong word (heard by voice)"; textSize="15sp"; layout_width="fill"; layout_marginBottom="10dp"};
-        {EditText; id="correctWord"; hint="Correct word (replace with)"; textSize="15sp"; layout_width="fill"; layout_marginBottom="15dp"};
-        {Button; text="Add to Dictionary"; layout_width="fill"; backgroundColor="#1B5E20"; textColor="#FFFFFF"; layout_marginBottom="8dp";
-            onClick=function()
-                local w = wrongWord.getText().toString():gsub("^%s+",""):gsub("%s+$","")
-                local c = correctWord.getText().toString():gsub("^%s+",""):gsub("%s+$","")
-                if w ~= "" and c ~= "" then
-                    changeTable[w] = c; saveDictionary()
-                    service.speak("Added. " .. w .. " will be replaced with " .. c)
-                    dlg.dismiss()
-                else service.speak("Please fill both fields.") end
-            end};
-        {Button; text="Go Back"; layout_width="fill"; backgroundColor="#37474F"; textColor="#FFFFFF";
-            onClick=function() dlg.dismiss() end};
-    }
-    local v, err = loadlayout(layout)
-    if v then dlg.setView(v) else service.speak("Layout error: " .. tostring(err)) end
+    dlg.setTitle("Select Typing Language")
+    dlg.setCancelable(true)
+    
+    local list = ListView(service)
+    local adapter = ArrayAdapter(service, android.R.layout.simple_list_item_1, TYPING_LANGUAGES)
+    list.setAdapter(adapter)
+    
+    list.onItemClick = function(l, v, position, id)
+        local selectedLang = TYPING_LANGUAGES[position + 1]
+        saveTypingLanguage(selectedLang)
+        service.speak("Typing language set to: " .. selectedLang)
+        dlg.dismiss()
+        if mainDlg then mainDlg.show() end
+    end
+    
+    dlg.setView(list)
     dlg.show()
 end
 
-local function showDictionaryListDialog()
-    if next(changeTable) == nil then service.speak("Dictionary is empty. Add words first."); return end
+function showAISettingsDialog(mainDlg)
+    local dlg = LuaDialog(service)
+    dlg.setTitle("AI Engine Settings")
+    dlg.setCancelable(true)
+    
+    local mainLayout = LinearLayout(service)
+    mainLayout.setOrientation(1)
+    mainLayout.setPadding(30, 20, 30, 20)
+    
+    -- Dynamic state (declared early so closures below can reference it)
+    local currentProv = getActiveProvider()
+    
+    -- 1. Provider Spinner
+    local provLabel = TextView(service)
+    provLabel.setText("Select Provider:")
+    provLabel.setTextSize(14)
+    provLabel.setTextColor(0xFFFFFFFF)
+    provLabel.setPadding(0, 0, 0, 10)
+    mainLayout.addView(provLabel)
+    
+    local provSpinner = Spinner(service)
+    local provAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, PROVIDERS)
+    provAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    provSpinner.setAdapter(provAdapter)
+    
+    local provParams = LinearLayout.LayoutParams(-1, -2)
+    provParams.setMargins(0, 0, 0, 20)
+    provSpinner.setLayoutParams(provParams)
+    mainLayout.addView(provSpinner)
+    
+    -- 2. Create API Key Button
+    local createBtn = Button(service)
+    createBtn.setBackgroundColor(0xFF2196F3)
+    createBtn.setLayoutParams(LinearLayout.LayoutParams(-1, -2))
+    mainLayout.addView(createBtn)
+    
+    -- 2b. NEW: Key Source Spinner (Default hidden key / Custom)
+    local keySourceLabel = TextView(service)
+    keySourceLabel.setText("API Key Source:")
+    keySourceLabel.setTextSize(14)
+    keySourceLabel.setTextColor(0xFFFFFFFF)
+    keySourceLabel.setPadding(0, 10, 0, 10)
+    mainLayout.addView(keySourceLabel)
+
+    local keySourceSpinner = Spinner(service)
+    local keySourceAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, KEY_SOURCE_OPTIONS)
+    keySourceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    keySourceSpinner.setAdapter(keySourceAdapter)
+    local keySourceParams = LinearLayout.LayoutParams(-1, -2)
+    keySourceParams.setMargins(0, 0, 0, 10)
+    keySourceSpinner.setLayoutParams(keySourceParams)
+    mainLayout.addView(keySourceSpinner)
+
+    -- 3. API Key Input (sirf "Custom" select hone par dikhega)
+    local keyInput = EditText(service)
+    keyInput.setBackgroundColor(0xFF222222)
+    keyInput.setInputType(129)
+    local kParams = LinearLayout.LayoutParams(-1, -2)
+    kParams.setMargins(0, 10, 0, 10)
+    keyInput.setLayoutParams(kParams)
+    mainLayout.addView(keyInput)
+
+    keySourceSpinner.onItemSelected = function(l, v, position, id)
+        if position == 0 then -- Default
+            keyInput.setText("")
+            keyInput.setVisibility(View.GONE)
+        else -- Custom
+            keyInput.setVisibility(View.VISIBLE)
+            if currentProv == "Mistral AI" then
+                keyInput.setText(getMistralCustomKeyRaw())
+            else
+                keyInput.setText(getOpenRouterCustomKeyRaw())
+            end
+        end
+    end
+    
+    -- 4. Test API Key Button
+    local testBtn = Button(service)
+    testBtn.setText("Test API Key")
+    testBtn.setBackgroundColor(0xFFFF9800)
+    testBtn.setLayoutParams(LinearLayout.LayoutParams(-1, -2))
+    mainLayout.addView(testBtn)
+    
+    -- 5. Model Spinner
+    local modelLabel = TextView(service)
+    modelLabel.setText("Select Model:")
+    modelLabel.setTextSize(14)
+    modelLabel.setTextColor(0xFFFFFFFF)
+    modelLabel.setPadding(0, 10, 0, 10)
+    mainLayout.addView(modelLabel)
+    
+    local modelSpinner = Spinner(service)
+    local mParams = LinearLayout.LayoutParams(-1, -2)
+    mParams.setMargins(0, 0, 0, 20)
+    modelSpinner.setLayoutParams(mParams)
+    mainLayout.addView(modelSpinner)
+    
+    -- Adapters for Models
+    local orAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, OPENROUTER_MODELS)
+    orAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    
+    local miAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, MISTRAL_MODELS)
+    miAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    
+    -- 5b. NEW: Writing Mode label + spinner ("acche acche mode")
+    local modeLabel = TextView(service)
+    modeLabel.setText("Writing Mode:")
+    modeLabel.setTextSize(14)
+    modeLabel.setTextColor(0xFFFFFFFF)
+    modeLabel.setPadding(0, 10, 0, 10)
+    mainLayout.addView(modeLabel)
+    
+    local modeSpinner = Spinner(service)
+    local modeAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, WRITING_MODES)
+    modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    modeSpinner.setAdapter(modeAdapter)
+    local modeParams = LinearLayout.LayoutParams(-1, -2)
+    modeParams.setMargins(0, 0, 0, 20)
+    modeSpinner.setLayoutParams(modeParams)
+    mainLayout.addView(modeSpinner)
+    
+    local currentMode = getWritingMode()
+    for i = 1, #WRITING_MODES do
+        if WRITING_MODES[i] == currentMode then
+            modeSpinner.setSelection(i - 1)
+            break
+        end
+    end
+    
+    -- 5c. NEW: After-Sentence Format label + spinner
+    local afterLabel = TextView(service)
+    afterLabel.setText("Har Sentence Ke Baad:")
+    afterLabel.setTextSize(14)
+    afterLabel.setTextColor(0xFFFFFFFF)
+    afterLabel.setPadding(0, 10, 0, 10)
+    mainLayout.addView(afterLabel)
+    
+    local afterSpinner = Spinner(service)
+    local afterAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, AFTER_SENTENCE_OPTIONS)
+    afterAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    afterSpinner.setAdapter(afterAdapter)
+    local afterParams = LinearLayout.LayoutParams(-1, -2)
+    afterParams.setMargins(0, 0, 0, 20)
+    afterSpinner.setLayoutParams(afterParams)
+    mainLayout.addView(afterSpinner)
+    
+    local currentAfterIndex = getAfterSentenceStyleIndex()
+    if currentAfterIndex >= 1 and currentAfterIndex <= #AFTER_SENTENCE_OPTIONS then
+        afterSpinner.setSelection(currentAfterIndex - 1)
+    end
+    
+    -- 6. Cancel & Save Buttons (Side by Side)
+    local btnLayout = LinearLayout(service)
+    btnLayout.setOrientation(0)
+    
+    local cancelBtn = Button(service)
+    cancelBtn.setText("CANCEL")
+    cancelBtn.setBackgroundColor(0xFFF44336)
+    local cancelParams = LinearLayout.LayoutParams(0, -2, 1)
+    cancelParams.setMargins(0, 0, 5, 0)
+    cancelBtn.setLayoutParams(cancelParams)
+    btnLayout.addView(cancelBtn)
+    
+    local saveBtn = Button(service)
+    saveBtn.setText("SAVE")
+    saveBtn.setBackgroundColor(0xFF4CAF50)
+    local saveParams = LinearLayout.LayoutParams(0, -2, 1)
+    saveParams.setMargins(5, 0, 0, 0)
+    saveBtn.setLayoutParams(saveParams)
+    btnLayout.addView(saveBtn)
+    
+    mainLayout.addView(btnLayout)
+    
+    -- Dynamic Update Logic
+    local function refreshUI(provider)
+        local source
+        if provider == "Mistral AI" then
+            createBtn.setText("Create Mistral API Key")
+            keyInput.setHint("Enter Mistral API Key")
+            modelSpinner.setAdapter(miAdapter)
+            local cm = getMistralModel()
+            for i = 1, #MISTRAL_MODELS do
+                if MISTRAL_MODELS[i] == cm then modelSpinner.setSelection(i - 1) break end
+            end
+            source = getMistralKeySource()
+            if source == "custom" then
+                keyInput.setText(getMistralCustomKeyRaw())
+            end
+        else
+            createBtn.setText("Create OpenRouter API Key")
+            keyInput.setHint("Enter OpenRouter API Key")
+            modelSpinner.setAdapter(orAdapter)
+            local cm = getOpenRouterModel()
+            for i = 1, #OPENROUTER_MODELS do
+                if OPENROUTER_MODELS[i] == cm then modelSpinner.setSelection(i - 1) break end
+            end
+            source = getOpenRouterKeySource()
+            if source == "custom" then
+                keyInput.setText(getOpenRouterCustomKeyRaw())
+            end
+        end
+
+        -- NEW: Key Source spinner + key field visibility sync
+        if source == "custom" then
+            keySourceSpinner.setSelection(1)
+            keyInput.setVisibility(View.VISIBLE)
+        else
+            keySourceSpinner.setSelection(0)
+            keyInput.setText("")
+            keyInput.setVisibility(View.GONE)
+        end
+    end
+    
+    -- Set Initial Provider Selection
+    for i = 1, #PROVIDERS do
+        if PROVIDERS[i] == currentProv then
+            provSpinner.setSelection(i - 1)
+            break
+        end
+    end
+    
+    provSpinner.onItemSelected = function(l, v, position, id)
+        currentProv = PROVIDERS[position + 1]
+        refreshUI(currentProv)
+    end
+    
+    -- Dialog khulte hi ek baar UI ko sahi state mein laao
+    refreshUI(currentProv)
+    
+    -- Button Actions
+    createBtn.setOnClickListener(function()
+        local url = (currentProv == "Mistral AI") and "https://console.mistral.ai/api-keys/" or "https://openrouter.ai/keys"
+        local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        service.startActivity(intent)
+    end)
+    
+    testBtn.setOnClickListener(function()
+        local key = keyInput.getText().toString()
+        if not key or key == "" then service.speak("Enter API Key first") return end
+        
+        testBtn.setText("Testing...")
+        testBtn.setEnabled(false)
+        
+        if currentProv == "Mistral AI" then
+            testMistralAPI(key, function(success, msg)
+                testBtn.setText("Test API Key")
+                testBtn.setEnabled(true)
+                service.speak(msg)
+            end)
+        else
+            testOpenRouterAPI(key, "google/gemini-2.0-flash-001", function(success, msg)
+                testBtn.setText("Test API Key")
+                testBtn.setEnabled(true)
+                service.speak(msg)
+            end)
+        end
+    end)
+    
+    saveBtn.setOnClickListener(function()
+        local key = keyInput.getText().toString()
+        saveActiveProvider(currentProv)
+        
+        -- NEW: resolve chosen key source ("Default" = position 0, "Custom" = position 1)
+        local chosenSource = (keySourceSpinner.getSelectedItemPosition() == 1) and "custom" or "default"
+        
+        if currentProv == "Mistral AI" then
+            saveMistralKeySource(chosenSource)
+            if chosenSource == "custom" then saveMistralApiKey(key) end
+            local m = MISTRAL_MODELS[modelSpinner.getSelectedItemPosition() + 1]
+            if m then saveMistralModel(m) end
+        else
+            saveOpenRouterKeySource(chosenSource)
+            if chosenSource == "custom" then saveOpenRouterApiKey(key) end
+            local m = OPENROUTER_MODELS[modelSpinner.getSelectedItemPosition() + 1]
+            if m then saveOpenRouterModel(m) end
+        end
+        
+        -- NEW: save writing mode + after-sentence format
+        local selectedMode = WRITING_MODES[modeSpinner.getSelectedItemPosition() + 1]
+        if selectedMode then saveWritingMode(selectedMode) end
+        
+        local selectedAfterIndex = afterSpinner.getSelectedItemPosition() + 1
+        saveAfterSentenceStyleIndex(selectedAfterIndex)
+        
+        service.speak("Settings saved")
+        dlg.dismiss()
+        if mainDlg then mainDlg.show() end
+    end)
+    
+    cancelBtn.setOnClickListener(function()
+        dlg.dismiss()
+        if mainDlg then mainDlg.show() end
+    end)
+    
+    local scrollView = ScrollView(service)
+    scrollView.addView(mainLayout)
+    dlg.setView(scrollView)
+    dlg.show()
+end
+
+local dictFile = os.getenv("EXTERNAL_STORAGE") .. "/openrouter_typer_dict.dat"
+local changeTable = {}
+-- NEW: lowercase index — chahe dictionary mein 100 words ho ya 100,000,
+-- lookup hamesha O(1) (instant) rahega, kyunke har baar poori dictionary
+-- text mein "search" nahi hoti, sirf ek table lookup hoti hai.
+local changeTableLower = {}
+
+-- NEW: har dafa changeTable badalne ke baad yeh call karo taake
+-- changeTableLower hamesha sync rahe.
+function rebuildDictionaryIndex()
+    changeTableLower = {}
+    for wrong, correct in pairs(changeTable) do
+        if type(wrong) == "string" and type(correct) == "string" then
+            changeTableLower[wrong:lower()] = correct
+        end
+    end
+end
+
+function loadDictionary()
+    local f = io.open(dictFile, "r")
+    if f then
+        local content = f:read("*all")
+        f:close()
+        if content and content ~= "" then
+            local ok, result = pcall(cjson.decode, content)
+            if ok and type(result) == "table" then
+                changeTable = result
+            else
+                changeTable = {}
+            end
+        end
+    end
+    rebuildDictionaryIndex()
+end
+
+function saveDictionary()
+    local f = io.open(dictFile, "w")
+    if f then
+        f:write(cjson.encode(changeTable))
+        f:close()
+    end
+    rebuildDictionaryIndex()
+end
+
+function addToDictionary(wrongWord, correctWord)
+    if wrongWord and correctWord and wrongWord ~= "" and correctWord ~= "" then
+        changeTable[wrongWord] = correctWord
+        saveDictionary()
+        return true
+    end
+    return false
+end
+
+-- ==================== NEW: Fast, single-pass dictionary correction ====================
+-- Purana tareeqa har dictionary entry ke liye poora text scan karta tha (30,000
+-- entries ke sath bohot slow/hang ho jata). Yeh naya tareeqa text ko sirf EK
+-- baar words mein todta hai aur har word ko table mein O(1) dhoondta hai —
+-- dictionary chahe 10 words ki ho ya 30,000 ki, speed same rahegi.
+function applyDictionaryCorrections(text)
+    if not text or text == "" or next(changeTableLower) == nil then
+        return text
+    end
+
+    local result = {}
+    local pos = 1
+    local len = #text
+    while pos <= len do
+        local ws, we = text:find("^%s+", pos)
+        if ws then
+            table.insert(result, text:sub(ws, we))
+            pos = we + 1
+        else
+            local ns, ne = text:find("%S+", pos)
+            if not ns then break end
+            local word = text:sub(ns, ne)
+            -- word ke aakhir se punctuation (., !, ?, ,) alag karo taake lookup match ho
+            local core, trail = word:match("^(.-)([%.%!%?%,;:]*)$")
+            if not core or core == "" then
+                core = word
+                trail = ""
+            end
+            local replacement = changeTableLower[core:lower()]
+            if replacement then
+                table.insert(result, replacement .. trail)
+            else
+                table.insert(result, word)
+            end
+            pos = ne + 1
+        end
+    end
+    return table.concat(result)
+end
+
+function getSavedLanguage()
+    local langFile = os.getenv("EXTERNAL_STORAGE") .. "/openrouter_typer_lang.dat"
+    local f = io.open(langFile, "r")
+    if f then
+        local content = f:read("*all")
+        f:close()
+        if content and content ~= "" then
+            return content:gsub("%s+", "")
+        end
+    end
+    return "ur-PK"
+end
+
+function saveLanguage(code)
+    local langFile = os.getenv("EXTERNAL_STORAGE") .. "/openrouter_typer_lang.dat"
+    local f = io.open(langFile, "w")
+    if f then
+        f:write(code)
+        f:close()
+        service.speak("Language saved")
+    end
+end
+
+-- Added Sindhi and Punjabi to Typing Languages
+local languageItems = {
+    "Urdu (Pakistan)",
+    "English (US)",
+    "English (UK)",
+    "Hindi (India)",
+    "Arabic (Saudi Arabia)",
+    "Sindhi (Pakistan)",
+    "Punjabi (Pakistan)",
+    "Spanish (Spain)",
+    "French (France)",
+    "German (Germany)",
+    "Chinese (Mandarin)",
+    "Japanese (Japan)",
+    "Turkish (Turkey)",
+    "Russian (Russia)",
+    "Portuguese (Brazil)"
+}
+
+local languageCodes = {
+    "ur-PK",
+    "en-US",
+    "en-GB",
+    "hi-IN",
+    "ar-SA",
+    "sd-PK",
+    "pa-PK",
+    "es-ES",
+    "fr-FR",
+    "de-DE",
+    "zh-CN",
+    "ja-JP",
+    "tr-TR",
+    "ru-RU",
+    "pt-BR"
+}
+
+function showDictionaryDialog()
+    local dlg = LuaDialog(service)
+    dlg.setTitle("Add to Dictionary")
+    local layout = {
+        LinearLayout;
+        orientation = "vertical";
+        padding = "20dp";
+        {
+            EditText;
+            id = "wrongWord";
+            hint = "Wrong word (غلط لفظ)";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "15dp";
+        };
+        {
+            EditText;
+            id = "correctWord";
+            hint = "Correct word (صحیح لفظ)";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "15dp";
+        };
+        {
+            Button;
+            text = "Add to Dictionary";
+            textSize = "16sp";
+            layout_width = "fill";
+            onClick = function()
+                local wrong = wrongWord.getText().toString()
+                local correct = correctWord.getText().toString()
+                if wrong ~= "" and correct ~= "" then
+                    addToDictionary(wrong, correct)
+                    service.speak("Added: " .. wrong .. " → " .. correct)
+                    dlg.dismiss()
+                else
+                    service.speak("Both fields required")
+                end
+            end;
+        };
+    }
+    dlg.setView(loadlayout(layout))
+    dlg.show()
+end
+
+function showDictionaryList()
+    if next(changeTable) == nil then
+        service.speak("Dictionary is empty")
+        return
+    end
     local items = {}
-    for w, c in pairs(changeTable) do items[#items+1] = w .. " >> " .. c end
-    table.sort(items)
-    local dlg = LuaDialog(service)
-    dlg.setTitle("My Dictionary  (" .. #items .. " words)")
-    local lv = ListView(context)
-    lv.setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_1, items))
-    lv.onItemClick = function(p,v,pos,id) service.speak(items[pos+1]) end
-    dlg.setView(lv); dlg.show()
+    for wrong, correct in pairs(changeTable) do
+        table.insert(items, wrong .. " → " .. correct)
+    end
+    local listDlg = LuaDialog(service)
+    listDlg.setTitle("My Dictionary")
+    local layout = {
+        LinearLayout;
+        orientation = "vertical";
+        padding = "10dp";
+        {
+            ListView;
+            id = "list";
+            layout_width = "fill";
+            layout_height = "400dp";
+        };
+        {
+            Button;
+            text = "Close";
+            layout_width = "fill";
+            onClick = function()
+                listDlg.dismiss()
+            end;
+        };
+    }
+    local view = loadlayout(layout)
+    list.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, items))
+    listDlg.setView(view)
+    listDlg.show()
 end
-
--- ==================== ABOUT DIALOG ====================
-local function showAboutDialog(onBack)
-    local curModeKey = getStr("active_mode","auto_fix")
-    local curModeName= "Auto Fix"
-    local mi = 1
-    while mi <= #MODE_KEYS do
-        if MODE_KEYS[mi] == curModeKey then curModeName = MODES[mi]; break end
-        mi = mi + 1
-    end
-    local curStyleKey  = getStr("emojiStyle","smart")
-    local curStyleName = "Smart Match"
-    local esi = 1
-    while esi <= #EMOJI_STYLE_KEYS do
-        if EMOJI_STYLE_KEYS[esi] == curStyleKey then curStyleName = EMOJI_STYLES[esi]; break end
-        esi = esi + 1
-    end
-
-    local dlg = LuaDialog(service)
-    dlg.setTitle("About and Support")
-    local ml = LinearLayout(service)
-    ml.setOrientation(1); ml.setPadding(20,20,20,20)
-
-    local function addTV(txt, sz, clr, mb)
-        local tv = TextView(service)
-        tv.setText(txt); tv.setTextSize(sz or 13)
-        tv.setTextColor(clr or 0xFFCCCCCC)
-        local lp = LinearLayout.LayoutParams(-1,-2)
-        lp.setMargins(0,0,0,mb or 8)
-        tv.setLayoutParams(lp)
-        ml.addView(tv)
-    end
-
-    local function addBtn(txt, bgClr, mb, action)
-        local btn = Button(service)
-        btn.setText(txt); btn.setTextSize(13)
-        btn.setBackgroundColor(bgClr); btn.setTextColor(0xFFFFFFFF)
-        local lp = LinearLayout.LayoutParams(-1,-2)
-        lp.setMargins(0,0,0,mb or 8)
-        btn.setLayoutParams(lp)
-        btn.setOnClickListener(action)
-        ml.addView(btn)
-    end
-
-    addTV("CSR MultiTyper", 26, 0xFF2196F3, 2)
-    addTV("Version " .. currentVersion, 14, 0xFF757575, 2)
-    addTV("Developer: Aftab Ali (CSR Expert)", 13, 0xFF9E9E9E, 4)
-    addTV("Upgraded by: Noman Khan", 12, 0xFF607D8B, 20)
-
-    addTV("Current Configuration", 14, 0xFFFF9800, 8)
-    addTV(
-        "Provider      : Groq AI\n" ..
-        "Model          : " .. getStr("groq_model","llama-3.3-70b-versatile") ..
-        "\nMode           : " .. curModeName ..
-        "\nLanguage     : " .. getStr("selectedLang","Urdu (Pakistan)") ..
-        "\nEmoji           : " .. (getBool("emojiEnabled") and "ON (" .. curStyleName .. ")" or "OFF") ..
-        "\nOutput Format: " .. getStr("outputFormat","normal") ..
-        "\nTranslate     : " .. getStr("targetLang","---"),
-        13, 0xFFCCCCCC, 20)
-
-    addTV("What's New in v4.1", 14, 0xFFFF9800, 8)
-    addTV(
-        "* AI preamble removal (Sure, Here is, Bilkul, etc.)\n" ..
-        "* Trailing notes and disclaimers auto-removed\n" ..
-        "* Stricter SYSTEM_PROMPT: no padding or extra sentences\n" ..
-        "* max_tokens reduced 1024 -> 512 for concise output\n" ..
-        "* All mode prompts shortened and tightened\n" ..
-        "* cleanResponse() upgraded with 10+ preamble patterns\n" ..
-        "* Emoji engine unchanged (working correctly)",
-        13, 0xFFCCCCCC, 20)
-
-    addTV("Support and Contact", 14, 0xFFFF9800, 10)
-
-    addBtn("YouTube: CSR Expert Channel", 0xFFC62828, 8, function()
-        dlg.dismiss()
-        service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://youtube.com/@csrexpert-d5v")))
-    end)
-    addBtn("WhatsApp: +92 342 5037026", 0xFF1B5E20, 8, function()
-        dlg.dismiss()
-        service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/923425037026")))
-    end)
-    addBtn("WhatsApp Group: CSR Expert Community", 0xFF00695C, 8, function()
-        dlg.dismiss()
-        service.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://chat.whatsapp.com/CSRExpertGroup")))
-    end)
-    addBtn("Check for New Updates", 0xFF1565C0, 15, function()
-        dlg.dismiss()
-        checkForUpdates(true)
-    end)
-    addBtn("Go Back", 0xFF37474F, 0, function()
-        dlg.dismiss()
-        if onBack then onBack() end
-    end)
-
-    local sv = ScrollView(service); sv.addView(ml)
-    dlg.setView(sv); dlg.show()
-end
-
--- ==================== MAIN DIALOG ====================
-showMainDialog = function()
-    local curLang    = getStr("selectedLang","Urdu (Pakistan)")
-    local curModeKey = getStr("active_mode","auto_fix")
-    local curModeName= "Auto Fix"
-    local mi = 1
-    while mi <= #MODE_KEYS do
-        if MODE_KEYS[mi] == curModeKey then curModeName = MODES[mi]; break end
-        mi = mi + 1
-    end
-    local keyOk  = hasActiveApiKey()
-    local apiTxt = keyOk and "[Groq AI: Ready]" or "[No API Key - Open Settings]"
-    local apiClr = keyOk and 0xFF4CAF50 or 0xFFF44336
-
-    local mainDlg = LuaDialog(service)
-    local ml = LinearLayout(service)
-    ml.setOrientation(1); ml.setPadding(20,20,20,20)
-
-    local function addBtn(txt, bgClr, mb, action)
-        local btn = Button(service)
-        btn.setText(txt); btn.setTextSize(14)
-        btn.setBackgroundColor(bgClr); btn.setTextColor(0xFFFFFFFF)
-        local lp = LinearLayout.LayoutParams(-1,-2)
-        lp.setMargins(0,0,0,mb or 10)
-        btn.setLayoutParams(lp)
-        btn.setOnClickListener(action)
-        ml.addView(btn)
-        return btn
-    end
-
-    local titleTV = TextView(service)
-    titleTV.setText("CSR MultiTyper v" .. currentVersion)
-    titleTV.setTextSize(22); titleTV.setTextColor(0xFF2196F3)
-    titleTV.setGravity(17); titleTV.setPadding(0,0,0,2)
-    ml.addView(titleTV)
-
-    local devTV = TextView(service)
-    devTV.setText("Dev: Aftab Ali  |  Upgraded: Noman Khan")
-    devTV.setTextSize(11); devTV.setTextColor(0xFF607D8B); devTV.setGravity(17)
-    local d2lp = LinearLayout.LayoutParams(-1,-2); d2lp.setMargins(0,0,0,2); devTV.setLayoutParams(d2lp)
-    ml.addView(devTV)
-
-    local modeTV = TextView(service)
-    modeTV.setText("Mode: " .. curModeName)
-    modeTV.setTextSize(12); modeTV.setTextColor(0xFFFF9800); modeTV.setGravity(17)
-    local m2lp = LinearLayout.LayoutParams(-1,-2); m2lp.setMargins(0,0,0,2); modeTV.setLayoutParams(m2lp)
-    ml.addView(modeTV)
-
-    local apiTV = TextView(service)
-    apiTV.setText(apiTxt); apiTV.setTextSize(11); apiTV.setTextColor(apiClr); apiTV.setGravity(17)
-    local a2lp = LinearLayout.LayoutParams(-1,-2); a2lp.setMargins(0,0,0,12); apiTV.setLayoutParams(a2lp)
-    ml.addView(apiTV)
-
-    addBtn("Start AI Voice Typing", 0xFF1B5E20, 10, function()
-        mainDlg.dismiss(); startVoiceRecognition()
-    end)
-    addBtn("Language: " .. curLang, 0xFFE65100, 10, function()
-        mainDlg.dismiss(); showLanguageDialog(showMainDialog)
-    end)
-    addBtn("Groq AI Settings", 0xFF4A148C, 10, function()
-        mainDlg.dismiss(); showSettingsDialog(showMainDialog)
-    end)
-    addBtn("Mode: " .. curModeName, 0xFF00695C, 10, function()
-        mainDlg.dismiss(); showModeDialog(showMainDialog)
-    end)
-    addBtn("Add to Dictionary", 0xFF006064, 10, function()
-        showDictionaryAddDialog()
-    end)
-    addBtn("View Dictionary", 0xFF1A237E, 10, function()
-        showDictionaryListDialog()
-    end)
-    addBtn("About and Support", 0xFF263238, 10, function()
-        mainDlg.dismiss(); showAboutDialog(showMainDialog)
-    end)
-    addBtn("Exit", 0xFFB71C1C, 0, function()
-        mainDlg.dismiss()
-    end)
-
-    local sv = ScrollView(service); sv.addView(ml)
-    mainDlg.setView(sv); mainDlg.show()
-end
-
--- ==================== INIT ====================
-loadDictionary()
-
-mainHandler.postDelayed(Runnable({run=function()
-    checkForUpdates(false)
-end}), 3000)
 
 local editText = service.getEditText()
+
+function startVoiceTyping(langCode)
+    local context = service.getApplicationContext()
+    local speechRec = SpeechRecognizer.createSpeechRecognizer(context)
+    
+    local listener = RecognitionListener {
+        onResults = function(results)
+            local resultsArray = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            if resultsArray and resultsArray.size() > 0 then
+                local spokenText = resultsArray.get(0)
+                -- NEW: fast, single-pass dictionary correction (30,000+ words ke sath bhi tez)
+                spokenText = applyDictionaryCorrections(spokenText)
+                spokenText = spokenText:gsub("%s([?,!])", "%1")
+                if not spokenText:match("[.?!,.]$") then
+                    spokenText = spokenText .. ". "
+                end
+                
+                local activeProvider = getActiveProvider()
+                local apiKey = (activeProvider == "Mistral AI") and getMistralApiKey() or getOpenRouterApiKey()
+                
+                if apiKey and apiKey ~= "" then
+                    service.speak("AI processing...")
+                    processWithAI(spokenText, function(enhancedText)
+                        -- NEW: apply the chosen after-sentence format as a safety net
+                        local styleIndex = getAfterSentenceStyleIndex()
+                        local formatted = applyAfterSentenceFormat(enhancedText, styleIndex, isEmojiEnabled())
+                        service.insertText(editText, formatted)
+                        service.speak(formatted)
+                    end)
+                else
+                    service.insertText(editText, spokenText)
+                    service.speak(spokenText)
+                end
+            end
+            speechRec.destroy()
+        end,
+        onError = function(errorCode)
+            service.asyncSpeak("I did not understand your message")
+            speechRec.destroy()
+            return false
+        end,
+    }
+    
+    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, langCode)
+    -- NEW: lambi dictation ke liye — thodi si khamoshi (pause) par turant na ruke
+    intent.putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 3000)
+    intent.putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 3000)
+    intent.putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 15000)
+    speechRec.setRecognitionListener(listener)
+    speechRec.startListening(intent)
+end
+
+-- ==================== NEW: APP INFO ====================
+local APP_NAME = "Hazara Typer"
+local APP_VERSION = "1.0"
+local APP_DESCRIPTION = "Hazara Typer ek AI-powered voice typing assistant hai Jieshuo screen reader ke liye. Yeh bolkar likhwai gayi baat ko sahi spelling aur punctuation ke sath type karta hai, multiple languages (Roman Urdu, Miyari Urdu, English, Bengali, Sindhi, Punjabi, Hindi, Arabic, Nepali, Pashto) support karta hai, 16 alag writing modes deta hai (Professional, Casual, Telegram, Breaking News, Romantic, aur aur bhi), aur zaroorat ke hisab se har sentence ke baad emoji ya new line bhi laga sakta hai."
+local APP_WHATSAPP = "03145406759"
+
+function showAboutDialog(mainDlg)
+    local dlg = LuaDialog(service)
+    dlg.setTitle(APP_NAME .. " - About")
+    local layout = {
+        LinearLayout;
+        orientation = "vertical";
+        padding = "20dp";
+        {
+            TextView;
+            text = APP_NAME .. "\nVersion " .. APP_VERSION;
+            textSize = "16sp";
+            textColor = "#FF9800";
+            layout_marginBottom = "10dp";
+        };
+        {
+            TextView;
+            text = APP_DESCRIPTION;
+            textSize = "14sp";
+            layout_marginBottom = "15dp";
+        };
+        {
+            TextView;
+            text = "Developer: Noman Khan";
+            textSize = "14sp";
+            layout_marginBottom = "5dp";
+        };
+        {
+            TextView;
+            text = "WhatsApp: " .. APP_WHATSAPP;
+            textSize = "14sp";
+            layout_marginBottom = "15dp";
+        };
+        {
+            Button;
+            text = "Close";
+            layout_width = "fill";
+            onClick = function()
+                dlg.dismiss()
+                if mainDlg then mainDlg.show() end
+            end;
+        };
+    }
+    dlg.setView(loadlayout(layout))
+    dlg.show()
+end
+
+loadDictionary()
+
 if editText then
-    startVoiceRecognition()
+    startVoiceTyping(getSavedLanguage())
 else
-    showMainDialog()
+    local dlg = LuaDialog(service)
+    dlg.setTitle(APP_NAME)
+    
+    local emojiState = isEmojiEnabled()
+    local emojiButtonText = emojiState and "Emoji: ON" or "Emoji: OFF"
+    
+
+    local layout = {
+        LinearLayout;
+        orientation = "vertical";
+        padding = "30dp";
+        {
+            TextView;
+            text = "Hazara Typer";
+            textSize = "18sp";
+            textColor = "#FF9800";
+            gravity = "center";
+            layout_width = "fill";
+            layout_marginBottom = "15dp";
+        };
+        {
+            Button;
+            text = "Developer: Noman Khan (نعمان خان)";
+            textSize = "14sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            backgroundColor = "#333333";
+        };
+        {
+            Button;
+            text = "Select Language For Typing";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                local listDlg = LuaDialog(service)
+                listDlg.setTitle("Select Language")
+                local list = ListView(service)
+                list.setAdapter(ArrayAdapter(service, android.R.layout.simple_list_item_1, languageItems))
+                list.onItemClick = function(l, v, p, i)
+                    local selectedCode = languageCodes[p+1]
+                    local selectedItem = languageItems[p+1]
+                    saveLanguage(selectedCode)
+                    listDlg.dismiss()
+                    service.speak("Language selected: " .. selectedItem)
+                end
+                listDlg.setView(list)
+                listDlg.show()
+            end;
+        };
+        {
+            Button;
+            id = "typingLangBtn";
+            text = "Typing Output Language: " .. getTypingLanguage();
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                dlg.dismiss()
+                showTypingLanguageDialog(dlg)
+            end;
+        };
+        {
+            Button;
+            text = "Dictionary (Add Words)";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                showDictionaryDialog()
+            end;
+        };
+        {
+            Button;
+            text = "View Dictionary";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                showDictionaryList()
+            end;
+        };
+        {
+            Button;
+            id = "emojiToggle";
+            text = emojiButtonText;
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                local newState = not isEmojiEnabled()
+                setEmojiEnabled(newState)
+                local newText = newState and "Emoji: ON" or "Emoji: OFF"
+                emojiToggle.setText(newText)
+                service.speak("Emoji " .. (newState and "enabled" or "disabled"))
+            end;
+        };
+        {
+            Button;
+            text = "AI Engine Settings";
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                dlg.dismiss()
+                showAISettingsDialog(dlg)
+            end;
+        };
+        {
+            Button;
+            text = "About " .. APP_NAME;
+            textSize = "16sp";
+            layout_width = "fill";
+            layout_marginBottom = "10dp";
+            onClick = function()
+                dlg.dismiss()
+                showAboutDialog(dlg)
+            end;
+        };
+        {
+            Button;
+            text = "Exit";
+            textSize = "16sp";
+            layout_width = "fill";
+            onClick = function()
+                dlg.dismiss()
+            end;
+        };
+    }
+    
+    local view = loadlayout(layout)
+    dlg.setView(view)
+    dlg.show()
 end
