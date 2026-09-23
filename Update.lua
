@@ -17,7 +17,7 @@ local aiPrefs = service.getSharedPreferences(AI_PREFS, Context.MODE_PRIVATE)
 local aiEditor = aiPrefs.edit()
 
 -- Providers
-local PROVIDERS = {"OpenRouter", "Mistral AI"}
+local PROVIDERS = {"OpenRouter", "Mistral AI", "Gemini"}
 
 -- ==================== NEW: Default (hidden) API keys + Key Source option ====================
 -- SECURITY NOTE: agar yeh script kisi aur ko di jaye, yeh keys unko bhi mil jaayengi
@@ -25,6 +25,7 @@ local PROVIDERS = {"OpenRouter", "Mistral AI"}
 -- ya trusted logon ke liye hi Default use karo.
 local DEFAULT_OPENROUTER_KEY = "sk-or-v1-881a2ebdf158213c9f2bc87f4041faa6d48f713e9b39958840bc45d15e056ea"
 local DEFAULT_MISTRAL_KEY = "15LOTenvAWCp7GMO1Qcf1yuRDJtCYblB2"
+local DEFAULT_GEMINI_KEY = "" -- koi Gemini key nahi di gayi — is liye Gemini hamesha "Custom" se shuru hoga
 
 local KEY_SOURCE_OPTIONS = {"Default (Chhupi Hui Key)", "Custom (Apni Key)"}
 
@@ -45,37 +46,38 @@ local MISTRAL_MODELS = {
     "open-mistral-nemo"
 }
 
+-- ==================== NEW: Gemini Models (latest + purane, dono) ====================
+local GEMINI_MODELS = {
+    "gemini-flash-latest",       -- alias, hamesha newest Flash model ki taraf point karta hai
+    "gemini-pro-latest",         -- alias, hamesha newest Pro model ki taraf point karta hai
+    "gemini-3.5-flash",          -- naya, sabse latest stable Flash
+    "gemini-3.1-pro-preview",    -- naya, latest Pro (preview)
+    "gemini-3-flash-preview",    -- naya, Flash preview
+    "gemini-3.1-flash-lite",     -- naya, stable lightweight
+    "gemini-2.5-pro",            -- purana, stable Pro
+    "gemini-2.5-flash",          -- purana, stable Flash
+    "gemini-2.5-flash-lite"      -- purana, stable lightweight
+}
+
 -- ==================== NEW: TYPING LANGUAGE MODE ====================
 -- Translation feature hata di gayi hai. Ab iski jagah "Typing Language" hai:
 -- jo language select karoge, AI usi language/script mein SAHI, PROFESSIONAL
 -- typing karega (translate nahi karega — jo bola gaya wahi likhega, bas sahi
 -- script/spelling ke saath).
 local TYPING_LANGUAGES = {
-    "Auto (Jaisa Bola Jaye)",
-    "Roman Urdu",
-    "Miyari Urdu (Urdu Script)",
-    "English",
-    "Bengali",
-    "Sindhi",
-    "Punjabi",
-    "Hindi",
-    "Arabic",
-    "Nepali",
-    "Pashto"
+    "Auto Detect Script",
+    "Smart AI Mode",
+    "Roman Urdu Mode",
+    "Miyari Urdu Mode",
+    "English Professional Mode"
 }
 
 local TYPING_LANGUAGE_INSTRUCTIONS = {
-    ["Auto (Jaisa Bola Jaye)"] = "Keep the text in whatever language/script it was originally spoken in. Do not translate or switch language.",
-    ["Roman Urdu"] = "Write strictly in Roman Urdu (Urdu language using English/Latin letters), with correct spelling and natural Roman Urdu conventions. Do not switch to Urdu script.",
-    ["Miyari Urdu (Urdu Script)"] = "Write strictly in standard (Miyari) Urdu using proper Urdu script (اردو رسم الخط), with correct spelling, grammar and Urdu punctuation.",
-    ["English"] = "Write strictly in correct, professional English with proper spelling and grammar.",
-    ["Bengali"] = "Write strictly in correct Bengali (বাংলা) script with proper spelling and grammar.",
-    ["Sindhi"] = "Write strictly in correct Sindhi (سنڌي) with proper spelling and grammar.",
-    ["Punjabi"] = "Write strictly in correct Punjabi with proper spelling and grammar (Shahmukhi or Gurmukhi as appropriate to the input).",
-    ["Hindi"] = "Write strictly in correct Hindi (हिन्दी) Devanagari script with proper spelling and grammar.",
-    ["Arabic"] = "Write strictly in correct Arabic (العربية) with proper spelling and grammar.",
-    ["Nepali"] = "Write strictly in correct Nepali (नेपाली) with proper spelling and grammar.",
-    ["Pashto"] = "Write strictly in correct Pashto (پښتو) with proper spelling and grammar.",
+    ["Auto Detect Script"] = "Detect the language/script the person is speaking in automatically and keep the output in that same language/script — do not translate or switch language. Type it in a professional, publication-ready way: fix ONLY spelling and punctuation exactly (correct commas, full stops, question marks), and do NOT change the meaning, wording or word order in any way.",
+    ["Smart AI Mode"] = "Use your own best judgment to produce the clearest, most natural, most professional version of this text. If the spoken input mixes languages or scripts, intelligently clean it into one coherent, correct, professional form (choosing whichever language/script best matches the majority of the speech) rather than rigidly forcing a single fixed script. Fix spelling and grammar precisely; do not invent new information or change the core meaning.",
+    ["Roman Urdu Mode"] = "Write strictly in Roman Urdu (Urdu language using English/Latin letters), with correct, natural Roman Urdu spelling. Do not switch to Urdu script. Type it in a professional, publication-ready way: fix ONLY spelling and punctuation exactly, and do NOT change the meaning, wording or word order in any way.",
+    ["Miyari Urdu Mode"] = "Write strictly in standard (Miyari) Urdu using proper Urdu script (اردو رسم الخط), with correct spelling, grammar and Urdu punctuation (۔ ، ؟). Type it in a professional, publication-ready way: fix ONLY spelling and punctuation exactly, and do NOT change the meaning, wording or word order in any way.",
+    ["English Professional Mode"] = "Write strictly in correct, professional English with proper spelling and grammar. Type it in a professional, publication-ready way: fix ONLY spelling and punctuation exactly, and do NOT change the meaning, wording or word order in any way.",
 }
 
 -- ==================== NEW: AFTER-SENTENCE FORMAT OPTIONS ====================
@@ -85,62 +87,6 @@ local AFTER_SENTENCE_OPTIONS = {
     "Sirf Emoji",
     "Sirf New Line",
     "Emoji + New Line"
-}
-
--- ==================== NEW: WRITING MODES (24 total) ====================
--- AI Engine Settings ke andar "acha acha mode" — yeh AI ke likhne ka andaz badalta hai.
-local WRITING_MODES = {
-    "Normal",
-    "Professional (Bilkul Sahi)",
-    "Casual (Dostana)",
-    "Concise (Mukhtasar)",
-    "Detailed (Tafseeli)",
-    "Poetic (Shayarana)",
-    "Adabi Urdu (Literary)",
-    "Telegram Post",
-    "Breaking News",
-    "Romantic",
-    "Business Email (Karobari)",
-    "Social Media Caption",
-    "Academic Formal",
-    "Motivational (Josh Afza)",
-    "Diary (Zaati Note)",
-    "News Report (Khabar Andaz)",
-    "WhatsApp Chat",
-    "Legal / Contract",
-    "Speech / Lecture",
-    "Children's Story",
-    "Technical Manual",
-    "Religious / Khutbah",
-    "Condolence (Taziyat)",
-    "Debate (Munazra)"
-}
-
-local WRITING_MODE_INSTRUCTIONS = {
-    ["Normal"] = "Write in a natural, everyday tone. Do not change the meaning, wording or add new information — only fix spelling and punctuation.",
-    ["Professional (Bilkul Sahi)"] = "CRITICAL — HIGHEST PRIORITY INSTRUCTION: This is exact, publication-grade professional dictation mode. Type EXACTLY what was spoken, word for word — do NOT rephrase, do NOT summarize, do NOT paraphrase, do NOT add or remove a single word, do NOT change the meaning, tone or word order in any way. Your ONLY job is: (1) fix spelling mistakes, (2) add correct, natural, grammatically-precise punctuation (commas, full stops, question marks, exclamation marks) exactly where standard grammar requires it, and (3) fix obvious capitalization. Absolutely zero tolerance for typing mistakes, missing words, or altered meaning — the final output must read like it was typed flawlessly by a senior professional human stenographer/typist, ready to be sent or published with no further editing needed. Double-check every sentence before finalizing your answer.",
-    ["Casual (Dostana)"] = "Write in a warm, friendly, casual tone, as if talking to a close friend, without changing the core meaning.",
-    ["Concise (Mukhtasar)"] = "Keep sentences short and to the point. Avoid unnecessary words and filler, without dropping any actual information that was said.",
-    ["Detailed (Tafseeli)"] = "Expand on the ideas with more descriptive, thorough sentences, while staying strictly on topic and not inventing new facts.",
-    ["Poetic (Shayarana)"] = "Use a poetic, expressive, slightly literary tone, while preserving the original meaning.",
-    ["Adabi Urdu (Literary)"] = "Use elegant, literary Urdu vocabulary and phrasing where the language is Urdu; otherwise keep it eloquent.",
-    ["Telegram Post"] = "Format as a clean, punchy Telegram channel post: short punchy lines, clear structure, suitable for a public channel audience.",
-    ["Breaking News"] = "Format as an urgent Breaking News flash: short, high-impact sentences, formal news-style opening (e.g. 'Breaking:' style urgency), factual tone.",
-    ["Romantic"] = "Write in a warm, romantic, affectionate tone suitable for a loved one, while keeping the original meaning intact.",
-    ["Business Email (Karobari)"] = "Format as a formal business email: polite, professional, clear and to the point, suitable for a client or colleague.",
-    ["Social Media Caption"] = "Write as an engaging social media caption: natural, catchy, conversational, suitable for a post.",
-    ["Academic Formal"] = "Write in a formal academic tone: precise vocabulary, correct grammar, no slang, suitable for a report or essay.",
-    ["Motivational (Josh Afza)"] = "Write in an energetic, motivational, inspiring tone, while preserving the original meaning.",
-    ["Diary (Zaati Note)"] = "Write in a reflective, personal diary/journal tone, first-person and intimate.",
-    ["News Report (Khabar Andaz)"] = "Write in a neutral, factual news-report style, third-person, formal, no opinions added.",
-    ["WhatsApp Chat"] = "Format as a natural WhatsApp message: short, friendly, conversational sentences, easy to read on a phone screen, without being overly formal.",
-    ["Legal / Contract"] = "Write in precise, formal legal/contract language: unambiguous wording, correct legal punctuation, no slang, suitable for an agreement or official document.",
-    ["Speech / Lecture"] = "Format as a spoken speech or lecture: clear rhetorical structure, natural pauses indicated by punctuation, engaging and suitable for reading aloud to an audience.",
-    ["Children's Story"] = "Write in a simple, warm, story-telling tone suitable for children, using easy words and a gentle narrative flow, while preserving the original meaning.",
-    ["Technical Manual"] = "Write in a clear, precise technical/instructional tone: numbered or logically ordered steps where appropriate, no ambiguity, suitable for a manual or guide.",
-    ["Religious / Khutbah"] = "Write in a respectful, formal religious sermon (khutbah) tone, dignified and sincere, suitable for a religious talk or reminder.",
-    ["Condolence (Taziyat)"] = "Write in a gentle, respectful, comforting condolence-message tone, suitable for expressing sympathy on a loss.",
-    ["Debate (Munazra)"] = "Write in a confident, persuasive, structured debate/argument tone, clearly making the point while remaining respectful.",
 }
 
 -- Active Provider Functions
@@ -228,6 +174,41 @@ function saveMistralModel(model)
     aiEditor.commit()
 end
 
+-- ==================== NEW: Gemini Keys ====================
+function getGeminiKeySource()
+    return aiPrefs.getString("gemini_keySource", "custom") -- default "custom" kyunke koi hidden default key nahi
+end
+
+function saveGeminiKeySource(source)
+    aiEditor.putString("gemini_keySource", source)
+    aiEditor.commit()
+end
+
+function getGeminiApiKey()
+    if getGeminiKeySource() == "custom" then
+        return aiPrefs.getString("gemini_custom_apiKey", "")
+    end
+    return DEFAULT_GEMINI_KEY
+end
+
+function saveGeminiApiKey(key)
+    aiEditor.putString("gemini_custom_apiKey", key)
+    aiEditor.commit()
+end
+
+function getGeminiCustomKeyRaw()
+    return aiPrefs.getString("gemini_custom_apiKey", "")
+end
+
+function getGeminiModel()
+    return aiPrefs.getString("gemini_model", "gemini-flash-latest")
+end
+
+function saveGeminiModel(model)
+    aiEditor.putString("gemini_model", model)
+    aiEditor.commit()
+end
+
 function isEmojiEnabled()
     return aiPrefs.getBoolean("emojiEnabled", false)
 end
@@ -239,7 +220,7 @@ end
 
 -- ==================== NEW: Typing Language getters/setters (Translation replaced) ====================
 function getTypingLanguage()
-    return aiPrefs.getString("typingLanguage", "Auto (Jaisa Bola Jaye)")
+    return aiPrefs.getString("typingLanguage", "Auto Detect Script")
 end
 
 function saveTypingLanguage(langName)
@@ -257,15 +238,8 @@ function saveAfterSentenceStyleIndex(index)
     aiEditor.commit()
 end
 
--- ==================== NEW: Writing mode getters/setters ====================
-function getWritingMode()
-    return aiPrefs.getString("writingMode", "Professional (Bilkul Sahi)")
-end
-
-function saveWritingMode(mode)
-    aiEditor.putString("writingMode", mode)
-    aiEditor.commit()
-end
+-- ==================== Writing mode functions removed — ab TYPING_LANGUAGE hi
+-- combined script + professional-style instruction deta hai (see above). ====================
 
 function testOpenRouterAPI(apiKey, model, callback)
     local url = "https://openrouter.ai/api/v1/auth/key"
@@ -375,6 +349,60 @@ function callMistralAPI(apiKey, model, prompt, callback)
     end)
 end
 
+-- ==================== NEW: Gemini API ====================
+function testGeminiAPI(apiKey, callback)
+    local url = "https://generativelanguage.googleapis.com/v1beta/models?key=" .. apiKey
+    Http.get(url, {}, function(status, data)
+        if status == 200 then
+            callback(true, "Gemini API key is valid!")
+        elseif status == 400 or status == 401 or status == 403 then
+            callback(false, "Invalid Gemini API key")
+        else
+            callback(false, "Gemini Error: " .. status)
+        end
+    end)
+end
+
+function callGeminiAPI(apiKey, model, prompt, callback)
+    local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. apiKey
+    local headers = {
+        ["Content-Type"] = "application/json"
+    }
+    local payload = {
+        contents = {
+            { parts = { { text = prompt } } }
+        },
+        generationConfig = {
+            maxOutputTokens = 4096, -- bahut lambi typing ke liye
+            temperature = 0.7
+        }
+    }
+    
+    Http.post(url, cjson.encode(payload), headers, function(status, data)
+        if status == 200 then
+            local ok, decoded = pcall(cjson.decode, data)
+            if ok and decoded and decoded.candidates and decoded.candidates[1]
+               and decoded.candidates[1].content and decoded.candidates[1].content.parts
+               and decoded.candidates[1].content.parts[1] then
+                local text = decoded.candidates[1].content.parts[1].text
+                if text then
+                    callback(text, nil)
+                else
+                    callback(nil, "Invalid response from Gemini")
+                end
+            else
+                callback(nil, "Failed to parse Gemini response")
+            end
+        elseif status == 400 or status == 401 or status == 403 then
+            callback(nil, "Invalid API key. Please check your Gemini API key")
+        elseif status == 429 then
+            callback(nil, "Rate limit exceeded. Please wait or check your quota")
+        else
+            callback(nil, "Gemini Error: " .. status)
+        end
+    end)
+end
+
 -- ==================== NEW: GUARANTEED emoji system (AI par depend nahi karta) ====================
 -- Pehle sirf AI ko emoji lagane ko "bola" jata tha — agar model na maane to emoji
 -- gayab reh jati thi. Ab yeh code khud check karta hai: agar kisi sentence mein
@@ -462,31 +490,63 @@ function pickEmojiForSentence(sentence)
     end
     if sentence:find("!%s*$") then return "😃" end
     if sentence:find("%?%s*$") then return "🤔" end
+    if sentence:find("\216\159%s*$") then return "🤔" end -- ؟ Urdu question mark
     return "🙂"
 end
 
+-- FIX: Ab yeh Angrezi (. ! ?) aur Urdu script ke punctuation (۔ ؟) dono ko
+-- sentence ka aakhir samajhta hai — pehle sirf Angrezi wale pehchane jaate
+-- the, is liye Urdu script mein poora paragraph "ek hi sentence" ban jata
+-- tha aur emoji sirf akhir mein lagti thi.
 function splitIntoSentences(text)
     local sentences = {}
-    local pos = 1
+    local buffer = {}
+    local i = 1
     local len = #text
-    while pos <= len do
-        local s, e = text:find("[^.!?]*[.!?]+", pos)
-        if not s then break end
-        table.insert(sentences, text:sub(s, e))
-        pos = e + 1
+
+    local function isTerminatorAt(pos)
+        local b1 = text:byte(pos)
+        if b1 == 46 or b1 == 33 or b1 == 63 then -- . ! ?
+            return true, 1
+        end
+        if pos + 1 <= len then
+            local b2 = text:byte(pos + 1)
+            if (b1 == 219 and b2 == 148) or (b1 == 216 and b2 == 159) then -- ۔ ؟
+                return true, 2
+            end
+        end
+        return false, 0
     end
-    -- Baaki bacha hua text jisme punctuation na ho (aakhri adhoora jumla)
-    local consumed = 0
-    for _, s in ipairs(sentences) do
-        consumed = consumed + #s
+
+    while i <= len do
+        local isTerm, termLen = isTerminatorAt(i)
+        if isTerm then
+            table.insert(buffer, text:sub(i, i + termLen - 1))
+            i = i + termLen
+            -- lagatar aane wale terminators bhi (jaise "?!" ya "۔۔۔") isi sentence mein shamil karo
+            local moreTerm, moreLen = isTerminatorAt(i)
+            while moreTerm do
+                table.insert(buffer, text:sub(i, i + moreLen - 1))
+                i = i + moreLen
+                moreTerm, moreLen = isTerminatorAt(i)
+            end
+            table.insert(sentences, table.concat(buffer))
+            buffer = {}
+        else
+            table.insert(buffer, text:sub(i, i))
+            i = i + 1
+        end
     end
-    local remainder = text:sub(pos)
-    if remainder and remainder:match("%S") then
-        table.insert(sentences, remainder)
+
+    if #buffer > 0 then
+        local remainder = table.concat(buffer)
+        if remainder:match("%S") then
+            table.insert(sentences, remainder)
+        end
     end
-    -- Trim spaces
-    for i, s in ipairs(sentences) do
-        sentences[i] = s:match("^%s*(.-)%s*$")
+
+    for idx, s in ipairs(sentences) do
+        sentences[idx] = s:match("^%s*(.-)%s*$")
     end
     return sentences
 end
@@ -523,6 +583,9 @@ function processWithAI(spokenText, callback)
     if activeProvider == "Mistral AI" then
         apiKey = getMistralApiKey()
         model = getMistralModel()
+    elseif activeProvider == "Gemini" then
+        apiKey = getGeminiApiKey()
+        model = getGeminiModel()
     else
         apiKey = getOpenRouterApiKey()
         model = getOpenRouterModel()
@@ -535,20 +598,18 @@ function processWithAI(spokenText, callback)
     end
     
     local emojiEnabled = isEmojiEnabled()
-    local writingMode = getWritingMode()
-    local modeInstruction = WRITING_MODE_INSTRUCTIONS[writingMode] or WRITING_MODE_INSTRUCTIONS["Normal"]
     local afterSentenceStyle = getAfterSentenceStyleIndex()
     local typingLanguage = getTypingLanguage()
-    local langInstruction = TYPING_LANGUAGE_INSTRUCTIONS[typingLanguage] or TYPING_LANGUAGE_INSTRUCTIONS["Auto (Jaisa Bola Jaye)"]
+    local langInstruction = TYPING_LANGUAGE_INSTRUCTIONS[typingLanguage] or TYPING_LANGUAGE_INSTRUCTIONS["Auto Detect Script"]
     
     -- Translation feature hata di gayi hai. Ab yeh hamesha dictation-typist mode mein
     -- kaam karta hai: jo bola gaya wahi likhna hai, sirf spelling/punctuation theek karni hai,
-    -- meaning ya wording khud se badalni nahi hai (jab tak Writing Mode khud style badalne ko na kahe).
+    -- meaning ya wording khud se badalni nahi hai. Language + professional-style logic
+    -- dono ab ek hi "Typing Mode" (TYPING_LANGUAGE_INSTRUCTIONS) ke andar hain.
     local prompt = "You are a highly accurate professional dictation typist. Fix ONLY spelling and punctuation mistakes in the following spoken text. " ..
         "Do NOT translate it into another language. Do NOT summarize or shorten unless explicitly told to. Do NOT invent or add information that was not spoken. Preserve the original meaning exactly.\n"
     
-    prompt = prompt .. "LANGUAGE INSTRUCTION: " .. langInstruction .. "\n"
-    prompt = prompt .. "STYLE INSTRUCTION: " .. modeInstruction .. "\n"
+    prompt = prompt .. "MODE INSTRUCTION: " .. langInstruction .. "\n"
     
     -- ==================== FIX: Emoji toggle ab independent hai After-Sentence spinner se ====================
     -- Pehle emoji sirf tab lagti thi jab spinner "Emoji" par set ho — is wajah se
@@ -569,6 +630,15 @@ function processWithAI(spokenText, callback)
     
     if activeProvider == "Mistral AI" then
         callMistralAPI(apiKey, model, prompt, function(result, error)
+            if error then
+                service.speak(error)
+                callback(spokenText)
+            else
+                callback(result)
+            end
+        end)
+    elseif activeProvider == "Gemini" then
+        callGeminiAPI(apiKey, model, prompt, function(result, error)
             if error then
                 service.speak(error)
                 callback(spokenText)
@@ -713,30 +783,12 @@ function showAISettingsDialog(mainDlg)
     local miAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, MISTRAL_MODELS)
     miAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
     
-    -- 5b. NEW: Writing Mode label + spinner ("acche acche mode")
-    local modeLabel = TextView(service)
-    modeLabel.setText("Writing Mode:")
-    modeLabel.setTextSize(14)
-    modeLabel.setTextColor(0xFFFFFFFF)
-    modeLabel.setPadding(0, 10, 0, 10)
-    mainLayout.addView(modeLabel)
+    local giAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, GEMINI_MODELS)
+    giAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
     
-    local modeSpinner = Spinner(service)
-    local modeAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, WRITING_MODES)
-    modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    modeSpinner.setAdapter(modeAdapter)
-    local modeParams = LinearLayout.LayoutParams(-1, -2)
-    modeParams.setMargins(0, 0, 0, 20)
-    modeSpinner.setLayoutParams(modeParams)
-    mainLayout.addView(modeSpinner)
-    
-    local currentMode = getWritingMode()
-    for i = 1, #WRITING_MODES do
-        if WRITING_MODES[i] == currentMode then
-            modeSpinner.setSelection(i - 1)
-            break
-        end
-    end
+    -- Writing Mode spinner hata diya gaya — ab yeh "Typing Mode" (5 unified modes)
+    -- main menu ke button se control hota hai (Auto Detect Script / Smart AI Mode /
+    -- Roman Urdu Mode / Miyari Urdu Mode / English Professional Mode).
     
     -- 5c. NEW: After-Sentence Format label + spinner
     local afterLabel = TextView(service)
@@ -797,6 +849,18 @@ function showAISettingsDialog(mainDlg)
             if source == "custom" then
                 keyInput.setText(getMistralCustomKeyRaw())
             end
+        elseif provider == "Gemini" then
+            createBtn.setText("Create Gemini API Key")
+            keyInput.setHint("Enter Gemini API Key")
+            modelSpinner.setAdapter(giAdapter)
+            local cm = getGeminiModel()
+            for i = 1, #GEMINI_MODELS do
+                if GEMINI_MODELS[i] == cm then modelSpinner.setSelection(i - 1) break end
+            end
+            source = getGeminiKeySource()
+            if source == "custom" then
+                keyInput.setText(getGeminiCustomKeyRaw())
+            end
         else
             createBtn.setText("Create OpenRouter API Key")
             keyInput.setHint("Enter OpenRouter API Key")
@@ -840,7 +904,12 @@ function showAISettingsDialog(mainDlg)
     
     -- Button Actions
     createBtn.setOnClickListener(function()
-        local url = (currentProv == "Mistral AI") and "https://console.mistral.ai/api-keys/" or "https://openrouter.ai/keys"
+        local url = "https://openrouter.ai/keys"
+        if currentProv == "Mistral AI" then
+            url = "https://console.mistral.ai/api-keys/"
+        elseif currentProv == "Gemini" then
+            url = "https://aistudio.google.com/apikey"
+        end
         local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         service.startActivity(intent)
@@ -855,6 +924,12 @@ function showAISettingsDialog(mainDlg)
         
         if currentProv == "Mistral AI" then
             testMistralAPI(key, function(success, msg)
+                testBtn.setText("Test API Key")
+                testBtn.setEnabled(true)
+                service.speak(msg)
+            end)
+        elseif currentProv == "Gemini" then
+            testGeminiAPI(key, function(success, msg)
                 testBtn.setText("Test API Key")
                 testBtn.setEnabled(true)
                 service.speak(msg)
@@ -880,6 +955,11 @@ function showAISettingsDialog(mainDlg)
             if chosenSource == "custom" then saveMistralApiKey(key) end
             local m = MISTRAL_MODELS[modelSpinner.getSelectedItemPosition() + 1]
             if m then saveMistralModel(m) end
+        elseif currentProv == "Gemini" then
+            saveGeminiKeySource(chosenSource)
+            if chosenSource == "custom" then saveGeminiApiKey(key) end
+            local m = GEMINI_MODELS[modelSpinner.getSelectedItemPosition() + 1]
+            if m then saveGeminiModel(m) end
         else
             saveOpenRouterKeySource(chosenSource)
             if chosenSource == "custom" then saveOpenRouterApiKey(key) end
@@ -887,10 +967,7 @@ function showAISettingsDialog(mainDlg)
             if m then saveOpenRouterModel(m) end
         end
         
-        -- NEW: save writing mode + after-sentence format
-        local selectedMode = WRITING_MODES[modeSpinner.getSelectedItemPosition() + 1]
-        if selectedMode then saveWritingMode(selectedMode) end
-        
+        -- NEW: save after-sentence format (writing mode ab yahan nahi, main menu ke button se)
         local selectedAfterIndex = afterSpinner.getSelectedItemPosition() + 1
         saveAfterSentenceStyleIndex(selectedAfterIndex)
         
